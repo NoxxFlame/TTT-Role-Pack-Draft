@@ -1,0 +1,22 @@
+{
+  "title": "Role Pack Draft (Custom Roles for TTT)",
+  "type": "ServerContent",
+  "ignore": [
+    ".git*",
+    ".vscode*",
+    "*.md",
+    "*.iml",
+    ".idea*",
+    ".luacheckrc",
+    "*.psd",
+    "*.rockspec",
+    "*.vcproj",
+    "*.svn*",
+    "*.tmpl",
+    "LICENSE",
+    "templates*",
+    "images*",
+    "*.sw.vtx",
+    "*.xbox.vtx"
+  ]
+}
