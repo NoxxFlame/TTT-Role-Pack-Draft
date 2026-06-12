@@ -283,6 +283,8 @@ local banned = {
 function EndRolePackDraft()
     RunConsoleCommand("ttt_roundrestart")
 
+    timer.Remove("TTT_Draft_NextTurn")
+
     draftPhase = -1
     selected = nil
     order = {}
