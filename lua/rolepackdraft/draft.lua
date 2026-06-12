@@ -14,8 +14,14 @@ local draft_monster_bans = GetConVar("ttt_draft_monster_bans")
 local draft_detective_picks = GetConVar("ttt_draft_detective_picks")
 local draft_detective_bans = GetConVar("ttt_draft_detective_bans")
 
+local draft_prep_time = CreateConVar("ttt_draft_prep_time", "10")
+local draft_turn_time = CreateConVar("ttt_draft_turn_time", "5")
+local draft_end_time = CreateConVar("ttt_draft_end_time", "10")
+
 util.AddNetworkString("TTT_BeginRolePackDraft")
 util.AddNetworkString("TTT_BeginRolePackDraft_Part")
+util.AddNetworkString("TTT_NextRolePackDraft")
+util.AddNetworkString("TTT_EndRolePackDraft")
 
 local function RandomisePickBanOrder(iteration)
     if not iteration then iteration = 0 end
@@ -35,7 +41,7 @@ local function RandomisePickBanOrder(iteration)
 
     local validPlayers = {}
     for _, ply in player.Iterator() do
-        if not ply:IsSpec() or not ply:GetForceSpec() then
+        if (not ply:IsSpec() or not ply:GetForceSpec()) and not ply:IsBot() then
             table.insert(validPlayers, ply)
         end
     end
@@ -207,13 +213,102 @@ local function RandomisePickBanOrder(iteration)
     return order
 end
 
+local teamNames = {
+    [ROLE_TEAM_INNOCENT] = "innocents",
+    [ROLE_TEAM_TRAITOR] = "traitors",
+    [ROLE_TEAM_JESTER] = "jesters",
+    [ROLE_TEAM_INDEPENDENT] = "independents",
+    [ROLE_TEAM_MONSTER] = "monsters",
+    [ROLE_TEAM_DETECTIVE] = "detectives"
+}
+
 local function ReadAvailableRoles()
-    return {}
+    local dataJson = file.Read("rolepackdraft.json", "DATA")
+    if #dataJson == 0 then
+        ErrorNoHalt("Role pack draft roles list read failed!\n")
+        return
+    end
+
+    local dataTable = util.JSONToTable(dataJson)
+    if dataTable == nil then
+        ErrorNoHalt("Role pack draft roles list table conversion failed!\n")
+        return
+    end
+
+    local roles = {
+        [ROLE_TEAM_INNOCENT] = {},
+        [ROLE_TEAM_TRAITOR] = {},
+        [ROLE_TEAM_JESTER] = {},
+        [ROLE_TEAM_INDEPENDENT] = {},
+        [ROLE_TEAM_MONSTER] = {},
+        [ROLE_TEAM_DETECTIVE] = {}
+    }
+    for team = ROLE_TEAM_INNOCENT, ROLE_TEAM_DETECTIVE do
+        local teamRoles = dataTable.roles[teamNames[team]]
+        for _, roleStr in ipairs(teamRoles) do
+            for role = ROLE_INNOCENT, ROLE_MAX do
+                if ROLE_STRINGS_RAW[role] == roleStr then
+                    table.insert(roles[team], role)
+                end
+            end
+        end
+    end
+    return roles
+end
+
+local draftPhase = -1
+local selected
+local order = {}
+local roles = {}
+local chosen = {}
+
+function EndRolePackDraft(success)
+    if not success then
+        RunConsoleCommand("ttt_roundrestart")
+    end
+
+    draftPhase = -1
+    selected = nil
+    order = {}
+    roles = {}
+    chosen = {}
+
+    net.Start("TTT_EndRolePackDraft")
+    net.Broadcast()
+end
+
+local function NextRolePackDraft()
+    net.Start("TTT_NextRolePackDraft")
+    if draftPhase == 0 then
+        net.WriteInt(0, util.RoleBits())
+    else
+        if not selected then
+            local team = order[draftPhase].team
+            local roleIndex = math.random(1, #roles[team])
+            while table.HasValue(chosen, roles[team][roleIndex]) do
+                roleIndex = roleIndex + 1
+                if roleIndex > #roles[team] then roleIndex = 1 end
+            end
+            selected = roles[team][roleIndex]
+        end
+        net.WriteInt(selected, util.RoleBits())
+    end
+    net.Broadcast()
+
+    table.insert(chosen, selected)
+    selected = nil
+    draftPhase = draftPhase + 1
+
+    if draftPhase >= 1 and draftPhase <= #order then
+        timer.Create("TTT_Draft_NextTurn", draft_turn_time:GetInt(), 0, NextRolePackDraft)
+    elseif draftPhase == #order + 1 then
+        timer.Create("TTT_Draft_NextTurn", draft_end_time:GetInt(), 0, function() EndRolePackDraft(true) end)
+    end
 end
 
 function BeginRolePackDraft()
-    local order = RandomisePickBanOrder()
-    local roles = ReadAvailableRoles()
+    order = RandomisePickBanOrder()
+    roles = ReadAvailableRoles()
 
     local dataJson = util.TableToJSON({["order"] = order, ["roles"] = roles})
     if not dataJson or #dataJson == 0 then
@@ -235,21 +330,34 @@ function BeginRolePackDraft()
         net.WriteData(dataComp, len)
         net.Broadcast()
     else
-        local curpos = 0
+        local curPos = 0
 
         repeat
             net.Start("TTT_BeginRolePackDraft_Part")
-            net.WriteData(string.sub(dataComp, curpos + 1, curpos + maxStreamLength + 1), maxStreamLength)
+            net.WriteData(string.sub(dataComp, curPos + 1, curPos + maxStreamLength + 1), maxStreamLength)
             net.Broadcast()
 
-            curpos = curpos + maxStreamLength + 1
-        until (len - curpos <= maxStreamLength)
+            curPos = curPos + maxStreamLength + 1
+        until (len - curPos <= maxStreamLength)
 
         net.Start("TTT_BeginRolePackDraft")
         net.WriteUInt(len, 16)
-        net.WriteData(string.sub(dataComp, curpos + 1, len), len - curpos)
+        net.WriteData(string.sub(dataComp, curPos + 1, len), len - curPos)
         net.Broadcast()
     end
-end
 
+    local time = draft_prep_time:GetInt() + (draft_turn_time:GetInt() * #order) + draft_end_time:GetInt()
+    RunConsoleCommand("ttt_roundrestart")
+    timer.Simple(0, function()
+        SetRoundEnd(CurTime() + time)
+        timer.Remove("prep2begin")
+        timer.Remove("selectmute")
+        timer.Create("prep2begin", time, 1, BeginRound)
+        timer.Create("selectmute", time - 1, 1, function() MuteForRestart(true) end)
+    end)
+
+    draftPhase = 0
+    timer.Create("TTT_Draft_NextTurn", draft_prep_time:GetInt(), 0, NextRolePackDraft)
+end
 concommand.Add("ttt_draft_begin", BeginRolePackDraft, nil, "Starts a role pack draft", FCVAR_SERVER_CAN_EXECUTE)
+concommand.Add("ttt_draft_cancel", function() EndRolePackDraft(false) end, nil, "Cancels a role pack draft", FCVAR_SERVER_CAN_EXECUTE)
