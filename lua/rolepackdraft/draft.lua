@@ -48,6 +48,7 @@ local function RandomisePickBanOrder(iteration)
         end
     end
     local playerCount = #validPlayers
+    print(playerCount)
 
     local picks = {}
     for _ = 1, innocentPicks do table.insert(picks, ROLE_TEAM_INNOCENT) end
@@ -56,7 +57,6 @@ local function RandomisePickBanOrder(iteration)
     for _ = 1, independentPicks do table.insert(picks, ROLE_TEAM_INDEPENDENT) end
     for _ = 1, monsterPicks do table.insert(picks, ROLE_TEAM_MONSTER) end
     for _ = 1, detectivePicks do table.insert(picks, ROLE_TEAM_DETECTIVE) end
-    table.Shuffle(picks)
 
     local remainingPicks = {
         [ROLE_TEAM_INNOCENT] = innocentPicks,
@@ -66,8 +66,8 @@ local function RandomisePickBanOrder(iteration)
         [ROLE_TEAM_MONSTER] = monsterPicks,
         [ROLE_TEAM_DETECTIVE] = detectivePicks
     }
-    local playerPicks = #picks // playerCount
-    local randomPicks = #picks % playerCount
+    local playerPicks = math.floor((#picks) / playerCount)
+    local randomPicks = math.fmod(#picks, playerCount)
 
     local bans = {}
     for _ = 1, innocentBans do table.insert(bans, ROLE_TEAM_INNOCENT) end
@@ -86,8 +86,8 @@ local function RandomisePickBanOrder(iteration)
         [ROLE_TEAM_MONSTER] = monsterBans,
         [ROLE_TEAM_DETECTIVE] = detectiveBans
     }
-    local playerBans = #bans // playerCount
-    local randomBans = #bans % playerCount
+    local playerBans = math.floor((#bans) / playerCount)
+    local randomBans = math.fmod(#bans, playerCount)
 
     local function checkPossible(neededTeams, chosenTeams)
         if iteration >= maxIterations then return true end
@@ -128,6 +128,7 @@ local function RandomisePickBanOrder(iteration)
                 elseif iteration < maxIterations and count <= 0 then
                     return RandomisePickBanOrder(iteration + 1)
                 else
+                    print(ply:Nick() .. " pick " .. pick)
                     table.insert(pickRoles, pick)
                     hasTeam[pick] = true
                     remainingPicks[pick] = remainingPicks[pick] - 1
@@ -151,6 +152,7 @@ local function RandomisePickBanOrder(iteration)
                 elseif iteration < maxIterations and count <= 0 then
                     return RandomisePickBanOrder(iteration + 1)
                 else
+                    print(ply:Nick() .. " ban " .. ban)
                     table.insert(banRoles, ban)
                     hasTeam[ban] = true
                     remainingBans[ban] = remainingBans[ban] - 1

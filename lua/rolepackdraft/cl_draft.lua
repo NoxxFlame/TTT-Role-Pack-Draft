@@ -317,7 +317,7 @@ net.Receive("TTT_EndRolePackDraft", function()
     previousSelection = nil
     selectedRole = nil
 
-    for _, frame in ipairs(frames) do
+    for _, frame in pairs(frames) do
         frame:Close()
     end
     frames = {}
@@ -493,7 +493,7 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                     frame:SetSize(smallIconSize, smallIconSize)
                     frame:ShowCloseButton(false)
                     frame.Paint = function() end
-                    table.insert(frames, frame)
+                    frames[order] = frame
                     local avatar = vgui.Create("AvatarImage", frame)
                     avatar:SetPlayer(player.GetBySteamID64(turn.player))
                     avatar:SetSize(smallIconSize, smallIconSize)
@@ -522,15 +522,21 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
             surface.DrawTexturedRect(x - smallIconOutline, y - smallIconOutline, smallIconSize + (2 * smallIconOutline), smallIconSize + (2 * smallIconOutline))
             if order < draftPhase then
                 surface.SetDrawColor(255, 255, 255, 32)
-                frames[order].panel:SetBackgroundColor(Color(0, 0, 0, 223))
-                frames[order].panel:SetDrawBackground(true)
+                if turn.player then
+                    frames[order].panel:SetBackgroundColor(Color(0, 0, 0, 223))
+                    frames[order].panel:SetDrawBackground(true)
+                end
             elseif order > draftPhase then
                 surface.SetDrawColor(255, 255, 255, 127)
-                frames[order].panel:SetBackgroundColor(Color(0, 0, 0, 127))
-                frames[order].panel:SetDrawBackground(true)
+                if turn.player then
+                    frames[order].panel:SetBackgroundColor(Color(0, 0, 0, 127))
+                    frames[order].panel:SetDrawBackground(true)
+                end
             else
                 surface.SetDrawColor(COLOR_WHITE)
-                frames[order].panel:SetDrawBackground(false)
+                if turn.player then
+                    frames[order].panel:SetDrawBackground(false)
+                end
             end
             if turn.action == "pick" then
                 surface.SetMaterial(pickIcon)
