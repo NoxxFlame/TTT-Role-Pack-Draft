@@ -48,7 +48,6 @@ local function RandomisePickBanOrder(iteration)
         end
     end
     local playerCount = #validPlayers
-    print(playerCount)
 
     local picks = {}
     for _ = 1, innocentPicks do table.insert(picks, ROLE_TEAM_INNOCENT) end
@@ -128,7 +127,6 @@ local function RandomisePickBanOrder(iteration)
                 elseif iteration < maxIterations and count <= 0 then
                     return RandomisePickBanOrder(iteration + 1)
                 else
-                    print(ply:Nick() .. " pick " .. pick)
                     table.insert(pickRoles, pick)
                     hasTeam[pick] = true
                     remainingPicks[pick] = remainingPicks[pick] - 1
@@ -152,7 +150,6 @@ local function RandomisePickBanOrder(iteration)
                 elseif iteration < maxIterations and count <= 0 then
                     return RandomisePickBanOrder(iteration + 1)
                 else
-                    print(ply:Nick() .. " ban " .. ban)
                     table.insert(banRoles, ban)
                     hasTeam[ban] = true
                     remainingBans[ban] = remainingBans[ban] - 1

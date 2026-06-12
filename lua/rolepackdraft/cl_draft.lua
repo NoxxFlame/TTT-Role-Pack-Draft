@@ -642,42 +642,16 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
             local color = Color(255, 255, 255, 128)
             if nextPly == LocalPlayer() then
                 color = COLOR_WHITE
-                message = "You are " .. action .. "ing first"
+                message = "You are " .. action .. " first"
             elseif nextTurn.player == nil then
-                message = "Randomly " .. action .. "ing first"
+                message = "Randomly " .. action .. " first"
             else
-                message = nextPly:Nick() .. " is " .. action .. "ing first"
+                message = nextPly:Nick() .. " is " .. action .. " first"
             end
-            draw.SimpleText(message, "DraftRegular", x, (ScrH() / 2) + largeIconSize, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+            draw.SimpleText(message, "DraftRegular", x, (ScrH() / 2) + largeIconSize, color, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
         elseif draftPhase > #bottomPositions.order then
             draw.SimpleText("Role pack draft finished", "DraftLarge", x, ScrH() / 2, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-
-            local lastTurn = bottomPositions.order[#bottomPositions.order]
-            local lastPly = player.GetBySteamID64(lastTurn.player)
-
-            local action
-            if lastTurn.action == "pick" then
-                action = "picked"
-            else
-                action = "banned"
-            end
-
-            if lastPly == LocalPlayer() then
-                if randomSelection then
-                    message = "You ran out of time and randomly " .. action .. " " .. ROLE_STRINGS[previousSelection]
-                else
-                    message = "You " .. action .. " " .. ROLE_STRINGS[previousSelection]
-                end
-            elseif lastTurn.player == nil then
-                message = "Randomly " .. action .. " " .. ROLE_STRINGS[previousSelection]
-            else
-                if randomSelection then
-                    message = lastPly:Nick() .. " ran out of time and randomly " .. action .. " " .. ROLE_STRINGS[previousSelection]
-                else
-                    message = lastPly:Nick() .. " " .. action .. " " .. ROLE_STRINGS[previousSelection]
-                end
-            end
-            draw.SimpleText(message, "DraftRegular", x, (ScrH() / 2) + largeIconSize, Color(255, 255, 255, 128), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+            draw.SimpleText("A new round will begin soon", "DraftRegular", x, (ScrH() / 2) + largeIconSize, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
         else
             local turn = bottomPositions.order[draftPhase]
             local ply = player.GetBySteamID64(turn.player)
@@ -693,11 +667,11 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
             local color = Color(255, 255, 255, 128)
             if ply == LocalPlayer() then
                 color = COLOR_WHITE
-                message = "Your turn to " .. action .. " " .. teamNames[turn.team]
+                message = "Your turn to " .. turn.action .. " " .. teamNames[turn.team]
             elseif turn.player == nil then
-                message = "Randomly " .. action .. "ing " .. teamNames[turn.team]
+                message = "Randomly " .. action .. " " .. teamNames[turn.team]
             else
-                message = ply:Nick() .. " is " .. action .. "ing " .. teamNames[turn.team]
+                message = ply:Nick() .. " is " .. action .. " " .. teamNames[turn.team]
             end
             draw.SimpleText(message, "DraftLarge", x, (ScrH() - largeIconSize) / 2 - (0.5 * largeIconMargin), color, TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
 
@@ -745,11 +719,11 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                 color = Color(255, 255, 255, 128)
                 if nextPly == LocalPlayer() then
                     color = COLOR_WHITE
-                    message = "You are " .. action .. "ing next"
+                    message = "You are " .. action .. " next"
                 elseif nextTurn.player == nil then
-                    message = "Randomly " .. action .. "ing next"
+                    message = "Randomly " .. action .. " next"
                 else
-                    message = nextPly:Nick() .. " is " .. action .. "ing next"
+                    message = nextPly:Nick() .. " is " .. action .. " next"
                 end
                 draw.SimpleText(message, "DraftRegular", x, y, color, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
             end
