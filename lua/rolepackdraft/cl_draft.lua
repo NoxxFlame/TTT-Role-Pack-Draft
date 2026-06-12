@@ -13,6 +13,10 @@ local draft_monster_bans = GetConVar("ttt_draft_monster_bans")
 local draft_detective_picks = GetConVar("ttt_draft_detective_picks")
 local draft_detective_bans = GetConVar("ttt_draft_detective_bans")
 
+local draft_prep_time = GetConVar("ttt_draft_prep_time")
+local draft_turn_time = GetConVar("ttt_draft_turn_time")
+local draft_end_time = GetConVar("ttt_draft_end_time")
+
 local smallIconSize = 32
 local smallIconMargin = 10
 local smallIconOutline = 2
@@ -23,6 +27,31 @@ local largeIconOutline = 4
 local largeIconGlow = 32
 local groupDividerWidth = 4
 local groupMargin = 10
+local timerWidth = 256
+
+surface.CreateFont("DraftName", {
+    font = "Tahoma",
+    size = 16,
+    weight = 1000
+})
+
+surface.CreateFont("DraftTimer", {
+    font = "Tahoma",
+    size = 32,
+    weight = 1000
+})
+
+surface.CreateFont("DraftRegular", {
+    font = "Tahoma",
+    size = 48,
+    weight = 1000
+})
+
+surface.CreateFont("DraftLarge", {
+    font = "Tahoma",
+    size = 64,
+    weight = 1000
+})
 
 local function CalculateTopIconPositions()
     local innocentPicks = draft_innocent_picks:GetInt()
@@ -208,6 +237,10 @@ local bannedRoles = {
     [ROLE_TEAM_DETECTIVE] = {}
 }
 local draftPhase = -1
+local nextPhaseTime = -1
+local randomSelection = false
+local previousSelection
+local selectedRole
 local frames = {}
 
 local function BeginRolePackDraft(draftData)
@@ -216,6 +249,8 @@ local function BeginRolePackDraft(draftData)
     centrePositions = CalculateCentreIconPositions(draftData.roles)
     availableRoles = draftData.roles
     draftPhase = 0
+    nextPhaseTime = CurTime() + draft_prep_time:GetInt()
+
 end
 
 local buff = ""
@@ -277,6 +312,10 @@ net.Receive("TTT_EndRolePackDraft", function()
         [ROLE_TEAM_DETECTIVE] = {}
     }
     draftPhase = -1
+    nextPhaseTime = -1
+    randomSelection = false
+    previousSelection = nil
+    selectedRole = nil
 
     for _, frame in ipairs(frames) do
         frame:Close()
@@ -285,21 +324,32 @@ net.Receive("TTT_EndRolePackDraft", function()
 end)
 
 net.Receive("TTT_NextRolePackDraft", function()
-    local selected = net.ReadInt(util.RoleBits())
+    randomSelection = net.ReadBool()
+    previousSelection = net.ReadInt(util.RoleBits())
     if draftPhase > 0 then
         if bottomPositions.order[draftPhase].action == "pick" then
-            table.insert(pickedRoles[bottomPositions.order[draftPhase].team], selected)
+            table.insert(pickedRoles[bottomPositions.order[draftPhase].team], previousSelection)
         else
-            table.insert(bannedRoles[bottomPositions.order[draftPhase].team], selected)
+            table.insert(bannedRoles[bottomPositions.order[draftPhase].team], previousSelection)
         end
     end
     draftPhase = draftPhase + 1
+    if draftPhase > #bottomPositions.order then
+        nextPhaseTime = CurTime() + draft_end_time:GetInt()
+    else
+        nextPhaseTime = CurTime() + draft_turn_time:GetInt()
+    end
+    selectedRole = nil
 
     if draftPhase > #bottomPositions.order or player.GetBySteamID64(bottomPositions.order[draftPhase].player) ~= LocalPlayer() then
         if vgui.CursorVisible() then
             gui.EnableScreenClicker(false)
         end
     end
+end)
+
+net.Receive("TTT_UpdateRolePackDraft", function()
+    selectedRole = net.ReadInt(util.RoleBits())
 end)
 
 local smallOutline = Material("rolepackdraft/outline_small.png")
@@ -314,6 +364,16 @@ hook.Add("HUDShouldDraw", "TTTDraft_HUDShouldDraw", function(name)
     if draftPhase >= 0 and name ~= "CHudGMod" then return false end
 end)
 
+local teamNames = {
+    [ROLE_TEAM_INNOCENT] = "an innocent",
+    [ROLE_TEAM_TRAITOR] = "a traitor",
+    [ROLE_TEAM_JESTER] = "a jester",
+    [ROLE_TEAM_INDEPENDENT] = "an independent",
+    [ROLE_TEAM_MONSTER] = "a monster",
+    [ROLE_TEAM_DETECTIVE] = "a detective"
+}
+local mouseDown = false
+local lastRandomSelect = 0
 hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
     if draftPhase >= 0 then
         draw.NoTexture()
@@ -398,6 +458,19 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
             surface.DrawRect(divider, y, groupDividerWidth, smallIconSize)
         end
 
+        y = (2 * smallIconSize) + (3 * smallIconMargin)
+        local time = math.max(0, nextPhaseTime - CurTime())
+        local progress
+        if draftPhase == 0 then
+            progress = time / draft_prep_time:GetInt()
+        elseif draftPhase > #bottomPositions.order then
+            progress = time / draft_end_time:GetInt()
+        else
+            progress = time / draft_turn_time:GetInt()
+        end
+        draw.SimpleText(string.format("%05.2f", time), "DraftTimer", ScrW() / 2, y, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+        surface.DrawRect((ScrW() - (timerWidth * progress)) / 2, y + smallIconSize + smallIconMargin, (timerWidth * progress), groupDividerWidth)
+
         local x = bottomPositions.x
         y = ScrH() - smallIconSize - smallIconMargin
         draw.NoTexture()
@@ -480,14 +553,36 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                 end
 
                 cursorX, cursorY = input.GetCursorPos()
+            elseif turn.player == nil then
+                if CurTime() - lastRandomSelect > 0.5 then
+                    lastRandomSelect = CurTime()
+                    selectedRole = math.random(1, #availableRoles[turn.team])
+                    while table.HasValue(pickedRoles[turn.team], selectedRole) or table.HasValue(bannedRoles[turn.team], selectedRole) do
+                        selectedRole = selectedRole + 1
+                        if selectedRole > #availableRoles[turn.team] then
+                            selectedRole = 1
+                        end
+                    end
+                end
             end
 
             for _, role in ipairs(availableRoles[turn.team]) do
                 local hover = false
-                local selected = false
+                local selected = selectedRole == role
                 if cursorX >= x and cursorX <= x + largeIconSize and cursorY >= y and cursorY <= y + largeIconSize then
                     if not table.HasValue(pickedRoles[turn.team], role) and not table.HasValue(bannedRoles[turn.team], role) then
                         hover = true
+                        if input.IsMouseDown(MOUSE_LEFT) then
+                            if not mouseDown then
+                                net.Start("TTT_SelectRolePackDraft")
+                                net.WriteInt(role, util.RoleBits())
+                                net.WriteUInt(draftPhase, 8)
+                                net.SendToServer()
+                            end
+                            mouseDown = true
+                        else
+                            mouseDown = false
+                        end
                     end
                 end
 
@@ -506,10 +601,13 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                 surface.DrawRect(x, y, largeIconSize, largeIconSize)
                 if table.HasValue(pickedRoles[turn.team], role) or table.HasValue(bannedRoles[turn.team], role) then
                     surface.SetDrawColor(255, 255, 255, 32)
+                    draw.SimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), y + largeIconSize + (0.25 * largeIconMargin), Color(255, 255, 255, 32), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
                 elseif selected or hover then
                     surface.SetDrawColor(COLOR_WHITE)
+                    draw.SimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), y + largeIconSize + (0.25 * largeIconMargin), COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
                 else
                     surface.SetDrawColor(255, 255, 255, 191)
+                    draw.SimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), y + largeIconSize + (0.25 * largeIconMargin), Color(255, 255, 255, 191), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
                 end
                 surface.SetMaterial(ROLE_SPRITE_ICON_MATERIALS[ROLE_STRINGS_SHORT[role]])
                 surface.DrawTexturedRect(x, y, largeIconSize, largeIconSize)
@@ -517,6 +615,137 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                 surface.SetMaterial(largeOutline)
                 surface.DrawTexturedRect(x - largeIconOutline, y - largeIconOutline, largeIconSize + (2 * largeIconOutline), largeIconSize + (2 * largeIconOutline))
                 x = x + largeIconSize + largeIconMargin
+            end
+        end
+
+        x = ScrW() / 2
+        if draftPhase == 0 then
+            draw.SimpleText("Role pack draft starting soon", "DraftLarge", x, ScrH() / 2, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+
+            local nextTurn = bottomPositions.order[1]
+            local nextPly = player.GetBySteamID64(nextTurn.player)
+
+            local action
+            if nextTurn.action == "pick" then
+                action = "picking"
+            else
+                action = "banning"
+            end
+
+            local message
+            local color = Color(255, 255, 255, 128)
+            if nextPly == LocalPlayer() then
+                color = COLOR_WHITE
+                message = "You are " .. action .. "ing first"
+            elseif nextTurn.player == nil then
+                message = "Randomly " .. action .. "ing first"
+            else
+                message = nextPly:Nick() .. " is " .. action .. "ing first"
+            end
+            draw.SimpleText(message, "DraftRegular", x, (ScrH() / 2) + largeIconSize, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+        elseif draftPhase > #bottomPositions.order then
+            draw.SimpleText("Role pack draft finished", "DraftLarge", x, ScrH() / 2, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+
+            local lastTurn = bottomPositions.order[#bottomPositions.order]
+            local lastPly = player.GetBySteamID64(lastTurn.player)
+
+            local action
+            if lastTurn.action == "pick" then
+                action = "picked"
+            else
+                action = "banned"
+            end
+
+            if lastPly == LocalPlayer() then
+                if randomSelection then
+                    message = "You ran out of time and randomly " .. action .. " " .. ROLE_STRINGS[previousSelection]
+                else
+                    message = "You " .. action .. " " .. ROLE_STRINGS[previousSelection]
+                end
+            elseif lastTurn.player == nil then
+                message = "Randomly " .. action .. " " .. ROLE_STRINGS[previousSelection]
+            else
+                if randomSelection then
+                    message = lastPly:Nick() .. " ran out of time and randomly " .. action .. " " .. ROLE_STRINGS[previousSelection]
+                else
+                    message = lastPly:Nick() .. " " .. action .. " " .. ROLE_STRINGS[previousSelection]
+                end
+            end
+            draw.SimpleText(message, "DraftRegular", x, (ScrH() / 2) + largeIconSize, Color(255, 255, 255, 128), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+        else
+            local turn = bottomPositions.order[draftPhase]
+            local ply = player.GetBySteamID64(turn.player)
+
+            local action
+            if turn.action == "pick" then
+                action = "picking"
+            else
+                action = "banning"
+            end
+
+            local message
+            local color = Color(255, 255, 255, 128)
+            if ply == LocalPlayer() then
+                color = COLOR_WHITE
+                message = "Your turn to " .. action .. " " .. teamNames[turn.team]
+            elseif turn.player == nil then
+                message = "Randomly " .. action .. "ing " .. teamNames[turn.team]
+            else
+                message = ply:Nick() .. " is " .. action .. "ing " .. teamNames[turn.team]
+            end
+            draw.SimpleText(message, "DraftLarge", x, (ScrH() - largeIconSize) / 2 - (0.5 * largeIconMargin), color, TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
+
+            y = (ScrH() + largeIconSize) / 2 + largeIconMargin
+            if draftPhase > 1 then
+                local lastTurn = bottomPositions.order[draftPhase - 1]
+                local lastPly = player.GetBySteamID64(lastTurn.player)
+
+                if lastTurn.action == "pick" then
+                    action = "picked"
+                else
+                    action = "banned"
+                end
+
+                if lastPly == LocalPlayer() then
+                    if randomSelection then
+                        message = "You ran out of time and randomly " .. action .. " " .. ROLE_STRINGS[previousSelection]
+                    else
+                        message = "You " .. action .. " " .. ROLE_STRINGS[previousSelection]
+                    end
+                elseif lastTurn.player == nil then
+                    message = "Randomly " .. action .. " " .. ROLE_STRINGS[previousSelection]
+                else
+                    if randomSelection then
+                        message = lastPly:Nick() .. " ran out of time and randomly " .. action .. " " .. ROLE_STRINGS[previousSelection]
+                    else
+                        message = lastPly:Nick() .. " " .. action .. " " .. ROLE_STRINGS[previousSelection]
+                    end
+                end
+                draw.SimpleText(message, "DraftRegular", x, y, Color(255, 255, 255, 128), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+
+                y = y + (0.75 * largeIconSize)
+            end
+
+            if draftPhase < #bottomPositions.order then
+                local nextTurn = bottomPositions.order[draftPhase + 1]
+                local nextPly = player.GetBySteamID64(nextTurn.player)
+
+                if nextTurn.action == "pick" then
+                    action = "picking"
+                else
+                    action = "banning"
+                end
+
+                color = Color(255, 255, 255, 128)
+                if nextPly == LocalPlayer() then
+                    color = COLOR_WHITE
+                    message = "You are " .. action .. "ing next"
+                elseif nextTurn.player == nil then
+                    message = "Randomly " .. action .. "ing next"
+                else
+                    message = nextPly:Nick() .. " is " .. action .. "ing next"
+                end
+                draw.SimpleText(message, "DraftRegular", x, y, color, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
             end
         end
     end
