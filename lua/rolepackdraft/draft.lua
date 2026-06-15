@@ -250,7 +250,9 @@ local function ReadAvailableRoles()
         for _, roleStr in ipairs(teamRoles) do
             for role = ROLE_INNOCENT, ROLE_MAX do
                 if ROLE_STRINGS_RAW[role] == roleStr then
-                    table.insert(roles[team], role)
+                    if not ROLE_SELECTION_PREDICATE[role] or ROLE_SELECTION_PREDICATE[role]() then
+                        table.insert(roles[team], role)
+                    end
                 end
             end
         end
@@ -385,6 +387,15 @@ local function NextRolePackDraft()
         end
         rolePackJson = rolePackJson .. "}}"
 
+        local convarsJson = "{\"name\":\"draft\",\"convars\":["
+        for role = ROLE_INNOCENT, ROLE_MAX do
+            if not DEFAULT_ROLES[role] and not ROLE_BLOCK_SPAWN_CONVARS[role] then
+                CreateConVar("ttt_" .. ROLE_STRINGS_RAW[role] .. "_enabled", "0", FCVAR_REPLICATED)
+                convarsJson = convarsJson .. "{\"invalid\":false,\"cvar\":\"ttt_" .. ROLE_STRINGS_RAW[role] .. "_enabled\",\"value\":\"0\"},"
+            end
+        end
+        convarsJson = string.sub(rolePackJson, 1, -2) .. "]}"
+
         if not file.IsDir("rolepacks", "DATA") then
             if file.Exists("rolepacks", "DATA") then
                 ErrorNoHalt("Item named 'rolepacks' already exists in garrysmod/data but it is not a directory\n")
@@ -396,7 +407,7 @@ local function NextRolePackDraft()
         file.CreateDir("rolepacks/draft")
         file.Write("rolepacks/draft/roles.json", rolePackJson)
         file.CreateDir("rolepacks/draft/weapons")
-        file.Write("rolepacks/draft/convars.json", "{}")
+        file.Write("rolepacks/draft/convars.json", convarsJson)
 
         GetConVar("ttt_role_pack"):SetString("draft")
     end

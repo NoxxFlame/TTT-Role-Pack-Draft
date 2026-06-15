@@ -364,16 +364,66 @@ hook.Add("HUDShouldDraw", "TTTDraft_HUDShouldDraw", function(name)
     if draftPhase >= 0 and name ~= "CHudGMod" then return false end
 end)
 
+local function DrawColoredText(textTable, font, x, y, xalign, yalign)
+    surface.SetFont(font)
+
+    local width = 0
+    local height
+    local widths = {}
+    for _, text in ipairs(textTable) do
+        local w, h = surface.GetTextSize(text.text)
+        if not height then height = h end
+        table.insert(widths, w)
+        width = width + w
+    end
+
+    if (xalign == TEXT_ALIGN_CENTER) then
+        x = x - width / 2
+    elseif (xalign == TEXT_ALIGN_RIGHT) then
+        x = x - width
+    end
+
+    if (yalign == TEXT_ALIGN_CENTER) then
+        y = y - height / 2
+    elseif (yalign == TEXT_ALIGN_BOTTOM) then
+        y = y - height
+    end
+
+    for i, text in ipairs(textTable) do
+        surface.SetTextPos(math.ceil(x), math.ceil(y))
+
+        if (text.color ~= nil) then
+            surface.SetTextColor(text.color.r, text.color.g, text.color.b, text.color.a)
+        else
+            surface.SetTextColor(255, 255, 255, 255)
+        end
+
+        surface.DrawText(text.text)
+        x = x + widths[i]
+    end
+
+    return width, height
+end
+
+local teamArticle = {
+    [ROLE_TEAM_INNOCENT] = "AN",
+    [ROLE_TEAM_TRAITOR] = "A",
+    [ROLE_TEAM_JESTER] = "A",
+    [ROLE_TEAM_INDEPENDENT] = "AN",
+    [ROLE_TEAM_MONSTER] = "A",
+    [ROLE_TEAM_DETECTIVE] = "A"
+}
 local teamNames = {
-    [ROLE_TEAM_INNOCENT] = "an innocent",
-    [ROLE_TEAM_TRAITOR] = "a traitor",
-    [ROLE_TEAM_JESTER] = "a jester",
-    [ROLE_TEAM_INDEPENDENT] = "an independent",
-    [ROLE_TEAM_MONSTER] = "a monster",
-    [ROLE_TEAM_DETECTIVE] = "a detective"
+    [ROLE_TEAM_INNOCENT] = "INNOCENT",
+    [ROLE_TEAM_TRAITOR] = "TRAITOR",
+    [ROLE_TEAM_JESTER] = "JESTER",
+    [ROLE_TEAM_INDEPENDENT] = "INDEPENDENT",
+    [ROLE_TEAM_MONSTER] = "MONSTER",
+    [ROLE_TEAM_DETECTIVE] = "DETECTIVE"
 }
 local mouseDown = false
 local lastRandomSelect = 0
+local lastRandomIndex = 0
 hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
     if draftPhase >= 0 then
         draw.NoTexture()
@@ -443,7 +493,7 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                     end
                     surface.SetMaterial(banIcon)
                 else
-                    surface.SetDrawColor(255, 255, 255, 127)
+                    surface.SetDrawColor(255, 255, 255, 32)
                     surface.SetMaterial(Material(util.GetRoleIconPath(ROLE_STRINGS_SHORT[bannedRoles[team][slot]], "score", "png")))
                 end
                 surface.DrawTexturedRect(x, y, smallIconSize, smallIconSize)
@@ -562,13 +612,14 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
             elseif turn.player == nil then
                 if CurTime() - lastRandomSelect > 0.5 then
                     lastRandomSelect = CurTime()
-                    selectedRole = math.random(1, #availableRoles[turn.team])
-                    while table.HasValue(pickedRoles[turn.team], selectedRole) or table.HasValue(bannedRoles[turn.team], selectedRole) do
-                        selectedRole = selectedRole + 1
-                        if selectedRole > #availableRoles[turn.team] then
-                            selectedRole = 1
+                    lastRandomIndex = math.random(1, #availableRoles[turn.team])
+                    while table.HasValue(pickedRoles[turn.team], availableRoles[turn.team][lastRandomIndex]) or table.HasValue(bannedRoles[turn.team], availableRoles[turn.team][lastRandomIndex]) do
+                        lastRandomIndex = lastRandomIndex + 1
+                        if lastRandomIndex > #availableRoles[turn.team] then
+                            lastRandomIndex = 1
                         end
                     end
+                    selectedRole = availableRoles[turn.team][lastRandomIndex]
                 end
             end
 
@@ -626,106 +677,149 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
 
         x = ScrW() / 2
         if draftPhase == 0 then
-            draw.SimpleText("Role pack draft starting soon", "DraftLarge", x, ScrH() / 2, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+            draw.SimpleText("ROLE PACK DRAFT STARTING SOON", "DraftLarge", x, ScrH() / 2, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 
             local nextTurn = bottomPositions.order[1]
             local nextPly = player.GetBySteamID64(nextTurn.player)
 
-            local action
+            local action = {}
             if nextTurn.action == "pick" then
-                action = "picking"
+                action.text = "PICKING"
+                action.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
             else
-                action = "banning"
+                action.text = "BANNING"
+                action.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
             end
 
-            local message
-            local color = Color(255, 255, 255, 128)
+            local message = {}
             if nextPly == LocalPlayer() then
-                color = COLOR_WHITE
-                message = "You are " .. action .. " first"
+                table.insert(message, {["text"] = "YOU ARE ", ["color"] = COLOR_WHITE})
             elseif nextTurn.player == nil then
-                message = "Randomly " .. action .. " first"
+                table.insert(message, {["text"] = "RANDOMLY ", ["color"] = COLOR_WHITE})
             else
-                message = nextPly:Nick() .. " is " .. action .. " first"
+                table.insert(message, {["text"] = string.upper(nextPly:Nick()) .. " IS ", ["color"] = COLOR_WHITE})
             end
-            draw.SimpleText(message, "DraftRegular", x, (ScrH() / 2) + largeIconSize, color, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+            table.insert(message, action)
+            table.insert(message, {["text"] = " FIRST", ["color"] = COLOR_WHITE})
+            if nextPly ~= LocalPlayer() then
+                for _, text in ipairs(message) do
+                    text.color = ColorAlpha(text.color, 128)
+                end
+            end
+            DrawColoredText(message, "DraftRegular", x, (ScrH() / 2) + largeIconSize, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
         elseif draftPhase > #bottomPositions.order then
-            draw.SimpleText("Role pack draft finished", "DraftLarge", x, ScrH() / 2, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-            draw.SimpleText("A new round will begin soon", "DraftRegular", x, (ScrH() / 2) + largeIconSize, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+            draw.SimpleText("ROLE PACK DRAFT FINISHED", "DraftLarge", x, ScrH() / 2, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+            draw.SimpleText("A NEW ROUND WILL BEGIN SOON", "DraftRegular", x, (ScrH() / 2) + largeIconSize, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
         else
             local turn = bottomPositions.order[draftPhase]
             local ply = player.GetBySteamID64(turn.player)
 
-            local action
+            local action = {}
             if turn.action == "pick" then
-                action = "picking"
+                action.text = "PICKING"
+                action.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
             else
-                action = "banning"
+                action.text = "BANNING"
+                action.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
             end
 
-            local message
-            local color = Color(255, 255, 255, 128)
-            if ply == LocalPlayer() then
-                color = COLOR_WHITE
-                message = "Your turn to " .. turn.action .. " " .. teamNames[turn.team]
-            elseif turn.player == nil then
-                message = "Randomly " .. action .. " " .. teamNames[turn.team]
+            local actionShort = {}
+            if turn.action == "pick" then
+                actionShort.text = "PICK"
+                actionShort.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
             else
-                message = ply:Nick() .. " is " .. action .. " " .. teamNames[turn.team]
+                actionShort.text = "BAN"
+                actionShort.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
             end
-            draw.SimpleText(message, "DraftLarge", x, (ScrH() - largeIconSize) / 2 - (0.5 * largeIconMargin), color, TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
+
+            local message = {}
+            if ply == LocalPlayer() then
+                table.insert(message, {["text"] = "YOUR TURN TO ", ["color"] = COLOR_WHITE})
+                table.insert(message, actionShort)
+            elseif turn.player == nil then
+                table.insert(message, {["text"] = "RANDOMLY ", ["color"] = COLOR_WHITE})
+                table.insert(message, action)
+            else
+                table.insert(message, {["text"] = string.upper(ply:Nick()) .. " IS ", ["color"] = COLOR_WHITE})
+                table.insert(message, action)
+            end
+            table.insert(message, {["text"] = " " .. teamArticle[turn.team], ["color"] = COLOR_WHITE})
+            table.insert(message, {["text"] = " " .. teamNames[turn.team], ["color"] = GetRoleTeamColor(turn.team, "highlight")})
+            if ply ~= LocalPlayer() then
+                for _, text in ipairs(message) do
+                    text.color = ColorAlpha(text.color, 128)
+                end
+            end
+            DrawColoredText(message, "DraftLarge", x, (ScrH() - largeIconSize) / 2 - (0.5 * largeIconMargin), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
 
             y = (ScrH() + largeIconSize) / 2 + largeIconMargin
             if draftPhase > 1 then
-                local lastTurn = bottomPositions.order[draftPhase - 1]
+                local lastTurn = bottomPositions.order[1]
                 local lastPly = player.GetBySteamID64(lastTurn.player)
 
+                action = {}
                 if lastTurn.action == "pick" then
-                    action = "picked"
+                    action.text = "PICKED"
+                    action.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
                 else
-                    action = "banned"
+                    action.text = "BANNED"
+                    action.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
                 end
 
+                message = {}
                 if lastPly == LocalPlayer() then
+                    table.insert(message, {["text"] = "YOU ", ["color"] = COLOR_WHITE})
                     if randomSelection then
-                        message = "You ran out of time and randomly " .. action .. " " .. ROLE_STRINGS[previousSelection]
-                    else
-                        message = "You " .. action .. " " .. ROLE_STRINGS[previousSelection]
+                        table.insert(message, {["text"] = "RAN OUT OF TIME AND RANDOMLY ", ["color"] = COLOR_WHITE})
                     end
                 elseif lastTurn.player == nil then
-                    message = "Randomly " .. action .. " " .. ROLE_STRINGS[previousSelection]
+                    table.insert(message, {["text"] = "RANDOMLY ", ["color"] = COLOR_WHITE})
                 else
                     if randomSelection then
-                        message = lastPly:Nick() .. " ran out of time and randomly " .. action .. " " .. ROLE_STRINGS[previousSelection]
+                        table.insert(message, {["text"] = string.upper(nextPly:Nick()) .. " RAN OUT OF TIME AND RANDOMLY ", ["color"] = COLOR_WHITE})
                     else
-                        message = lastPly:Nick() .. " " .. action .. " " .. ROLE_STRINGS[previousSelection]
+                        table.insert(message, {["text"] = string.upper(nextPly:Nick()) .. " ", ["color"] = COLOR_WHITE})
                     end
                 end
-                draw.SimpleText(message, "DraftRegular", x, y, Color(255, 255, 255, 128), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+                table.insert(message, action)
+                table.insert(message, {["text"] = " " .. string.upper(ROLE_STRINGS[previousSelection]), ["color"] = GetRoleTeamColor(lastTurn.team, "highlight")})
+                for _, text in ipairs(message) do
+                    text.color = ColorAlpha(text.color, 128)
+                end
+                DrawColoredText(message, "DraftRegular", x, y, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
 
                 y = y + (0.75 * largeIconSize)
             end
 
             if draftPhase < #bottomPositions.order then
-                local nextTurn = bottomPositions.order[draftPhase + 1]
+                local nextTurn = bottomPositions.order[1]
                 local nextPly = player.GetBySteamID64(nextTurn.player)
 
+                action = {}
                 if nextTurn.action == "pick" then
-                    action = "picking"
+                    action.text = "PICKING"
+                    action.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
                 else
-                    action = "banning"
+                    action.text = "BANNING"
+                    action.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
                 end
 
-                color = Color(255, 255, 255, 128)
+                message = {}
                 if nextPly == LocalPlayer() then
-                    color = COLOR_WHITE
-                    message = "You are " .. action .. " next"
+                    table.insert(message, {["text"] = "YOU ARE ", ["color"] = COLOR_WHITE})
                 elseif nextTurn.player == nil then
-                    message = "Randomly " .. action .. " next"
+                    table.insert(message, {["text"] = "RANDOMLY ", ["color"] = COLOR_WHITE})
                 else
-                    message = nextPly:Nick() .. " is " .. action .. " next"
+                    table.insert(message, {["text"] = string.upper(nextPly:Nick()) .. " IS ", ["color"] = COLOR_WHITE})
                 end
-                draw.SimpleText(message, "DraftRegular", x, y, color, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+                table.insert(message, action)
+                table.insert(message, {["text"] = " NEXT", ["color"] = COLOR_WHITE})
+                if nextPly ~= LocalPlayer() then
+                    for _, text in ipairs(message) do
+                        text.color = ColorAlpha(text.color, 128)
+                    end
+                end
+                DrawColoredText(message, "DraftRegular", x, y, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
             end
         end
     end
