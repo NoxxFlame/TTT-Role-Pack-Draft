@@ -701,10 +701,8 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
             end
             table.insert(message, action)
             table.insert(message, {["text"] = " FIRST", ["color"] = COLOR_WHITE})
-            if nextPly ~= LocalPlayer() then
-                for _, text in ipairs(message) do
-                    text.color = ColorAlpha(text.color, 128)
-                end
+            for _, text in ipairs(message) do
+                text.color = ColorAlpha(text.color, 191)
             end
             DrawColoredText(message, "DraftRegular", x, (ScrH() / 2) + largeIconSize, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
         elseif draftPhase > #bottomPositions.order then
@@ -745,11 +743,6 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
             end
             table.insert(message, {["text"] = " " .. teamArticle[turn.team], ["color"] = COLOR_WHITE})
             table.insert(message, {["text"] = " " .. teamNames[turn.team], ["color"] = GetRoleTeamColor(turn.team, "highlight")})
-            if ply ~= LocalPlayer() then
-                for _, text in ipairs(message) do
-                    text.color = ColorAlpha(text.color, 128)
-                end
-            end
             DrawColoredText(message, "DraftLarge", x, (ScrH() - largeIconSize) / 2 - (0.5 * largeIconMargin), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
 
             y = (ScrH() + largeIconSize) / 2 + largeIconMargin
@@ -784,7 +777,7 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                 table.insert(message, action)
                 table.insert(message, {["text"] = " " .. string.upper(ROLE_STRINGS[previousSelection]), ["color"] = GetRoleTeamColor(lastTurn.team, "highlight")})
                 for _, text in ipairs(message) do
-                    text.color = ColorAlpha(text.color, 128)
+                    text.color = ColorAlpha(text.color, 191)
                 end
                 DrawColoredText(message, "DraftRegular", x, y, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
 
@@ -814,12 +807,20 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                 end
                 table.insert(message, action)
                 table.insert(message, {["text"] = " NEXT", ["color"] = COLOR_WHITE})
-                if nextPly ~= LocalPlayer() then
-                    for _, text in ipairs(message) do
-                        text.color = ColorAlpha(text.color, 128)
-                    end
+                for _, text in ipairs(message) do
+                    text.color = ColorAlpha(text.color, 191)
                 end
                 DrawColoredText(message, "DraftRegular", x, y, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            end
+        end
+
+        if draftPhase < #bottomPositions.order then
+            local nextTurn = bottomPositions.order[1]
+            local nextPly = player.GetBySteamID64(nextTurn.player)
+            if nextPly == LocalPlayer() then
+                x = ScrW() / 2
+                y = (3 * smallIconSize) + (5 * smallIconMargin)
+                draw.SimpleText("YOU ARE UP NEXT", "DraftRegular", x, y, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
             end
         end
     end
