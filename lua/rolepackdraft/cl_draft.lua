@@ -728,6 +728,8 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                 table.insert(message, {["text"] = string.upper(nextPly:Nick()) .. " IS ", ["color"] = COLOR_WHITE})
             end
             table.insert(message, action)
+            table.insert(message, {["text"] = " " .. teamArticle[nextTurn.team], ["color"] = COLOR_WHITE})
+            table.insert(message, {["text"] = " " .. teamNames[nextTurn.team], ["color"] = GetRoleTeamColor(nextTurn.team, "highlight")})
             table.insert(message, {["text"] = " FIRST", ["color"] = COLOR_WHITE})
             for _, text in ipairs(message) do
                 text.color = ColorAlpha(text.color, 191)
