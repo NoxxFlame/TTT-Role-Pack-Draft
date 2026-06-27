@@ -324,6 +324,8 @@ net.Receive("TTT_EndRolePackDraft", function()
 end)
 
 net.Receive("TTT_NextRolePackDraft", function()
+    if draftPhase == -1 then return end
+
     randomSelection = net.ReadBool()
     previousSelection = net.ReadInt(util.RoleBits())
     if draftPhase > 0 then
@@ -341,7 +343,17 @@ net.Receive("TTT_NextRolePackDraft", function()
     end
     selectedRole = nil
 
-    if draftPhase > #bottomPositions.order or player.GetBySteamID64(bottomPositions.order[draftPhase].player) ~= LocalPlayer() then
+    local currentPlayer
+    if draftPhase > 0 and draftPhase <= #bottomPositions.order then
+        currentPlayer = player.GetBySteamID64(bottomPositions.order[draftPhase].player)
+    end
+    if currentPlayer == LocalPlayer() then
+        surface.PlaySound("draft/alert.wav")
+    elseif draftPhase > 1 then
+        surface.PlaySound("draft/" .. bottomPositions.order[draftPhase - 1].action .. ".wav")
+    end
+
+    if draftPhase > #bottomPositions.order or currentPlayer ~= LocalPlayer() then
         if vgui.CursorVisible() then
             gui.EnableScreenClicker(false)
         end
@@ -358,6 +370,7 @@ local largeOutline = Material("rolepackdraft/outline_large.png")
 local largeGlow = Material("rolepackdraft/glow_large.png")
 local pickIcon = Material("rolepackdraft/pick.png")
 local banIcon = Material("rolepackdraft/ban.png")
+local largeBan = Material("rolepackdraft/ban_large.png")
 local randomIcon = Material("rolepackdraft/random.png")
 
 hook.Add("HUDShouldDraw", "TTTDraft_HUDShouldDraw", function(name)
@@ -660,7 +673,11 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                     surface.SetDrawColor(255, 255, 255, 32)
                     draw.SimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), y + largeIconSize + (0.25 * largeIconMargin), Color(255, 255, 255, 32), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
                 elseif selected or hover then
-                    surface.SetDrawColor(COLOR_WHITE)
+                    if turn.action == "ban" then
+                        surface.SetDrawColor(255, 255, 255, 32)
+                    else
+                        surface.SetDrawColor(COLOR_WHITE)
+                    end
                     draw.SimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), y + largeIconSize + (0.25 * largeIconMargin), COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
                 else
                     surface.SetDrawColor(255, 255, 255, 191)
@@ -668,6 +685,19 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                 end
                 surface.SetMaterial(ROLE_SPRITE_ICON_MATERIALS[ROLE_STRINGS_SHORT[role]])
                 surface.DrawTexturedRect(x, y, largeIconSize, largeIconSize)
+
+                if turn.action == "ban" then
+                    if selected then
+                        surface.SetDrawColor(COLOR_WHITE)
+                        surface.SetMaterial(largeBan)
+                        surface.DrawTexturedRect(x, y, largeIconSize, largeIconSize)
+                    elseif hover then
+                        surface.SetDrawColor(255, 255, 255, 191)
+                        surface.SetMaterial(largeBan)
+                        surface.DrawTexturedRect(x, y, largeIconSize, largeIconSize)
+                    end
+                end
+
                 surface.SetDrawColor(GetRoleTeamColor(turn.team, "highlight"))
                 surface.SetMaterial(largeOutline)
                 surface.DrawTexturedRect(x - largeIconOutline, y - largeIconOutline, largeIconSize + (2 * largeIconOutline), largeIconSize + (2 * largeIconOutline))
@@ -747,7 +777,7 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
 
             y = (ScrH() + largeIconSize) / 2 + largeIconMargin
             if draftPhase > 1 then
-                local lastTurn = bottomPositions.order[1]
+                local lastTurn = bottomPositions.order[draftPhase - 1]
                 local lastPly = player.GetBySteamID64(lastTurn.player)
 
                 action = {}
@@ -785,7 +815,7 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
             end
 
             if draftPhase < #bottomPositions.order then
-                local nextTurn = bottomPositions.order[1]
+                local nextTurn = bottomPositions.order[draftPhase + 1]
                 local nextPly = player.GetBySteamID64(nextTurn.player)
 
                 action = {}
@@ -815,7 +845,7 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
         end
 
         if draftPhase < #bottomPositions.order then
-            local nextTurn = bottomPositions.order[1]
+            local nextTurn = bottomPositions.order[draftPhase + 1]
             local nextPly = player.GetBySteamID64(nextTurn.player)
             if nextPly == LocalPlayer() then
                 x = ScrW() / 2

@@ -390,7 +390,6 @@ local function NextRolePackDraft()
         local convarsJson = "{\"name\":\"draft\",\"convars\":["
         for role = ROLE_INNOCENT, ROLE_MAX do
             if not DEFAULT_ROLES[role] and not ROLE_BLOCK_SPAWN_CONVARS[role] then
-                CreateConVar("ttt_" .. ROLE_STRINGS_RAW[role] .. "_enabled", "0", FCVAR_REPLICATED)
                 convarsJson = convarsJson .. "{\"invalid\":false,\"cvar\":\"ttt_" .. ROLE_STRINGS_RAW[role] .. "_enabled\",\"value\":\"0\"},"
             end
         end
