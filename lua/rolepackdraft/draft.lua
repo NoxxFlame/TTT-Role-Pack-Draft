@@ -393,7 +393,7 @@ local function NextRolePackDraft()
                 convarsJson = convarsJson .. "{\"invalid\":false,\"cvar\":\"ttt_" .. ROLE_STRINGS_RAW[role] .. "_enabled\",\"value\":\"0\"},"
             end
         end
-        convarsJson = string.sub(rolePackJson, 1, -2) .. "]}"
+        convarsJson = string.sub(convarsJson, 1, -2) .. "]}"
 
         if not file.IsDir("rolepacks", "DATA") then
             if file.Exists("rolepacks", "DATA") then

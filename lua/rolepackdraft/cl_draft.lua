@@ -349,8 +349,6 @@ net.Receive("TTT_NextRolePackDraft", function()
     end
     if currentPlayer == LocalPlayer() then
         surface.PlaySound("draft/alert.wav")
-    elseif draftPhase > 1 then
-        surface.PlaySound("draft/" .. bottomPositions.order[draftPhase - 1].action .. ".wav")
     end
 
     if draftPhase > #bottomPositions.order or currentPlayer ~= LocalPlayer() then
@@ -799,9 +797,9 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                     table.insert(message, {["text"] = "RANDOMLY ", ["color"] = COLOR_WHITE})
                 else
                     if randomSelection then
-                        table.insert(message, {["text"] = string.upper(nextPly:Nick()) .. " RAN OUT OF TIME AND RANDOMLY ", ["color"] = COLOR_WHITE})
+                        table.insert(message, {["text"] = string.upper(lastPly:Nick()) .. " RAN OUT OF TIME AND RANDOMLY ", ["color"] = COLOR_WHITE})
                     else
-                        table.insert(message, {["text"] = string.upper(nextPly:Nick()) .. " ", ["color"] = COLOR_WHITE})
+                        table.insert(message, {["text"] = string.upper(lastPly:Nick()) .. " ", ["color"] = COLOR_WHITE})
                     end
                 end
                 table.insert(message, action)
@@ -836,6 +834,8 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                     table.insert(message, {["text"] = string.upper(nextPly:Nick()) .. " IS ", ["color"] = COLOR_WHITE})
                 end
                 table.insert(message, action)
+                table.insert(message, {["text"] = " " .. teamArticle[nextTurn.team], ["color"] = COLOR_WHITE})
+                table.insert(message, {["text"] = " " .. teamNames[nextTurn.team], ["color"] = GetRoleTeamColor(nextTurn.team, "highlight")})
                 table.insert(message, {["text"] = " NEXT", ["color"] = COLOR_WHITE})
                 for _, text in ipairs(message) do
                     text.color = ColorAlpha(text.color, 191)
