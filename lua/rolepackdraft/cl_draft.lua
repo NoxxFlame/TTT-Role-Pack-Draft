@@ -348,7 +348,7 @@ net.Receive("TTT_NextRolePackDraft", function()
         currentPlayer = player.GetBySteamID64(bottomPositions.order[draftPhase].player)
     end
     if currentPlayer == LocalPlayer() then
-        surface.PlaySound("draft/alert.wav")
+        surface.PlaySound("rolepackdraft/alert.wav")
     end
 
     if draftPhase > #bottomPositions.order or currentPlayer ~= LocalPlayer() then
