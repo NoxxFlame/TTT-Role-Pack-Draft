@@ -57,6 +57,12 @@ surface.CreateFont("DraftSettings_Cross", {
     weight = 700
 })
 
+surface.CreateFont("DraftSettings_Config", {
+    font = "Tahoma",
+    size = 16,
+    weight = 600
+})
+
 surface.CreateFont("DraftSettings_Name", {
     font = "Tahoma",
     size = 13,
@@ -79,6 +85,13 @@ surface.CreateFont("DraftSettingsExclamation", {
     font = "Tahoma",
     size = 120,
     weight = 1000
+})
+
+surface.CreateFont("DraftSettings_ConfigLabel", {
+    font = "Tahoma",
+    size = 14,
+    weight = 500,
+    italic = true,
 })
 
 -- Make tooltip font big enough to be readable
@@ -1114,6 +1127,141 @@ local function AddLabel(scrollWindowCanvas, text, font, colour, height, wrap)
     return label
 end
 
+-- Config section
+local function AddSeparator(parent)
+    local sep = VGUICreate("DPanel", parent)
+    sep:Dock(TOP)
+    sep:SetTall(16)
+    sep:SetPaintBackground(false)
+    sep.Paint = function(_, w, h)
+        local lineW = w * (9 / 10)
+        local lineX = (w - lineW) / 2
+        SurfaceSetDrawColor(255, 255, 255, 255)
+        SurfaceDrawRect(lineX, h / 2 - 1, lineW, 1)
+    end
+    return sep
+end
+
+local function AddConfigRow(parent, labelText, defaultValue, convar, itemType, tooltipText)
+    local configRow = VGUICreate("DPanel", parent)
+    configRow:Dock(TOP)
+    configRow:DockMargin(0, 3, 0, 3)
+    configRow:SetTall(24)
+    configRow:SetPaintBackground(false)
+
+    -- Convar name
+    local convarName = VGUICreate("DLabel", configRow)
+    convarName:Dock(LEFT)
+    convarName:SetText(labelText .. " ")
+    convarName:SetTextColor(colours.white)
+    convarName:SetFont("DraftSettings_Config")
+    convarName:SizeToContents()
+
+    -- Default value
+    local convarDefault = VGUICreate("DLabel", configRow)
+    convarDefault:Dock(LEFT)
+    convarDefault:SetText("(default: " .. defaultValue .. ")")
+    convarDefault:SetTextColor(colours.grey)
+    convarDefault:SetFont("DraftSettings_ConfigLabel")
+    convarDefault:SizeToContents()
+
+    local currentValue = ConVarExists(convar) and GetConVar(convar):GetString() or defaultValue
+
+    if itemType == "dropDown" then
+        convarDefault:SetText("(default: Always)")
+        convarDefault:SizeToContents()
+
+        local dropDown = VGUICreate("DComboBox", configRow)
+        dropDown:Dock(RIGHT)
+        dropDown:SetSize(160, 24)
+        dropDown:AddChoice("Never", 0, currentValue == "0")
+        dropDown:AddChoice("If player is up next", 1, currentValue == "1")
+        dropDown:AddChoice("Always", 2, currentValue == "2")
+
+        if tooltipText then
+            dropDown:SetTooltip(tooltipText)
+            dropDown:SetTooltipPanelOverride("CustomLargeTooltip")
+        end
+
+        dropDown.OnSelect = function(_, _, _, data)
+            RunConsoleCommand(convar, tostring(data))
+        end
+    else
+        local textEntry = VGUICreate("DTextEntry", configRow)
+        textEntry:Dock(RIGHT)
+        textEntry:SetSize(60, 24)
+        textEntry:SetValue(currentValue)
+
+        textEntry.OnChange = function(self)
+            local val = self:GetValue()
+            timer.Create("DraftConfig_" .. convar, 0.3, 1, function()
+                if ConVarExists(convar) then
+                    RunConsoleCommand(convar, val)
+                end
+            end)
+        end
+    end
+end
+
+local function CreateConfigSection(parent, titleText)
+    local configSection = VGUICreate("DPanel", parent)
+    configSection:SetPaintBackground(true)
+    configSection:Dock(TOP)
+    configSection:DockMargin(0, 8, 0, 8)
+    configSection:SetTall(headerH)
+    configSection:SetBackgroundColor(colours.titleBar)
+
+    configSection.expanded = false
+
+    local titleBar = VGUICreate("DButton", configSection)
+    titleBar:SetText("")
+    titleBar:Dock(TOP)
+    titleBar:SetTall(headerH)
+
+    titleBar.Paint = function(self, w, h)
+        DrawRoundedBox(4, 0, 0, w, h, (self:IsHovered() or configSection.expanded) and colours.tileHover or colours.titleBar)
+
+        -- Expand/collapse triangle
+        DrawNoTexture()
+        SurfaceSetDrawColor(255, 255, 255, 255)
+        if configSection.expanded then
+            SurfaceDrawPoly({{x = 13, y = h / 2 - 3}, {x = 23, y = h / 2 - 3}, {x = 18, y = h / 2 + 4}})
+        else
+            SurfaceDrawPoly({{x = 15, y = h / 2 - 5}, {x = 21, y = h / 2}, {x = 15, y = h / 2 + 5}})
+        end
+
+        DrawSimpleText(titleText, "TabLarge", 32, h / 2, colours.white, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+    end
+
+    local configBody = VGUICreate("DPanel", configSection)
+    configBody:Dock(TOP)
+    configBody:DockMargin(8, 8, 8, 8)
+    configBody:SetPaintBackground(false)
+    configBody:SetVisible(false)
+    configBody:SetTall(0)
+    configSection.content = configBody
+
+    function configSection:UpdateHeight()
+        local height = headerH
+        if self.expanded then
+            configBody:InvalidateLayout(true)
+            configBody:SizeToChildren(false, true)
+            height = height + configBody:GetTall() + 16
+        end
+        if self:GetTall() ~= height then
+            self:SetTall(height)
+        end
+    end
+
+    titleBar.DoClick = function()
+        configSection.expanded = not configSection.expanded
+        configBody:SetVisible(configSection.expanded)
+        configSection:UpdateHeight()
+    end
+
+    return configSection
+end
+
 -- Fill tab when we get the data from the server
 local function BuildTab(basePanel, data)
     basePanel:Clear()
@@ -1132,7 +1280,38 @@ local function BuildTab(basePanel, data)
     local scrollWindowCanvas = scrollWindow:GetCanvas()
     slotsCanvas = scrollWindowCanvas
 
-    -- Title text, with the saved message over on the right
+    -- Config section
+    local configSection = CreateConfigSection(scrollWindowCanvas, "Role Draft Config")
+    local configContent = configSection.content
+
+    local showNextTooltip = [[Whether to show the roles for a player's upcoming turn so they can think about it in advance.
+
+- Never: Players are not shown a preview.
+- If player is up next: Players are only shown a preview if they are up next.
+- Always: Each player is shown a preview of their next turn.]]
+
+    AddConfigRow(configContent, "Prep Time", "10", "ttt_draft_prep_time", "int")
+    AddConfigRow(configContent, "Turn Time", "5", "ttt_draft_turn_time", "int")
+    AddConfigRow(configContent, "End Time", "10", "ttt_draft_end_time", "int")
+
+    AddSeparator(configContent)
+
+    AddConfigRow(configContent, "Show turn previews", "2", "ttt_draft_show_next", "dropDown", showNextTooltip)
+
+    AddSeparator(configContent)
+
+    AddConfigRow(configContent, "Detective Picks", "3", "ttt_draft_detective_picks", "int")
+    AddConfigRow(configContent, "Detective Bans", "1", "ttt_draft_detective_bans", "int")
+    AddConfigRow(configContent, "Innocent Picks", "5", "ttt_draft_innocent_picks", "int")
+    AddConfigRow(configContent, "Innocent Bans", "2", "ttt_draft_innocent_bans", "int")
+    AddConfigRow(configContent, "Traitor Picks", "4", "ttt_draft_traitor_picks", "int")
+    AddConfigRow(configContent, "Traitor Bans", "2", "ttt_draft_traitor_bans", "int")
+    AddConfigRow(configContent, "Independent Picks", "3", "ttt_draft_independent_picks", "int")
+    AddConfigRow(configContent, "Independent Bans", "2", "ttt_draft_independent_bans", "int")
+    AddConfigRow(configContent, "Monster Picks", "0", "ttt_draft_monster_picks", "int")
+    AddConfigRow(configContent, "Monster Bans", "0", "ttt_draft_monster_bans", "int")
+
+    -- Title text with 'Saved' message
     local titleRow = VGUICreate("DPanel", scrollWindowCanvas)
     titleRow:Dock(TOP)
     titleRow:SetTall(36)
@@ -1188,7 +1367,7 @@ local function CreateTab()
         DrawRoundedBox(0, 0, 0, w, h, colours.background)
     end
 
-    -- Close group/constants menu popups if F1 menu closed while they're open
+    -- Close group/constants menu popups if F1 menu is closed while they're open
     basePanel.OnRemove = function()
         for _, popup in ipairs(openPopups) do
             if IsValid(popup) then
