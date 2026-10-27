@@ -15,6 +15,8 @@ CreateConVar("ttt_draft_prep_time", "10", FCVAR_REPLICATED)
 CreateConVar("ttt_draft_turn_time", "5", FCVAR_REPLICATED)
 CreateConVar("ttt_draft_end_time", "10", FCVAR_REPLICATED)
 
+CreateConVar("ttt_draft_show_next", "2", FCVAR_REPLICATED)
+
 ROLE_TEAM_INNOCENT = ROLE_TEAM_INNOCENT or 0
 ROLE_TEAM_TRAITOR = ROLE_TEAM_TRAITOR or 1
 ROLE_TEAM_JESTER = ROLE_TEAM_JESTER or 2
