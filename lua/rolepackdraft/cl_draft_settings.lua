@@ -1344,6 +1344,7 @@ local function BuildTab(basePanel, data)
     end
     buttonBeginDraft.DoClick = function()
         RunConsoleCommand("ttt_draft_begin")
+        if HELPSCRN.Close then HELPSCRN:Close() end
     end
 
     local buttonCancelDraft = VGUICreate("DButton", actionButtonRow)
@@ -1357,6 +1358,7 @@ local function BuildTab(basePanel, data)
     end
     buttonCancelDraft.DoClick = function()
         RunConsoleCommand("ttt_draft_cancel")
+        if HELPSCRN.Close then HELPSCRN:Close() end
     end
 
     --------------------------------------------------------------------
