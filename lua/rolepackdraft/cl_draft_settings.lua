@@ -27,22 +27,26 @@ local TableSort          = table.sort
 local VGUICreate = vgui.Create
 
 local colours = {
-    black        = Color(0, 0, 0, 255),
-    background   = Color(24, 24, 24),
-    white        = Color(255, 255, 255),
-    grey         = Color(150, 150, 150),
-    darkGrey     = Color(110, 110, 110),
-    green        = Color(70, 220, 90),
-    tickgreen    = Color(0, 255, 0, 255),
-    orange       = Color(255, 170, 60),
-    red          = Color(230, 60, 60),
-    titleBar     = Color(50, 50, 50),
-    tile         = Color(38, 38, 38),
-    tileSelected = Color(26, 50, 30),
-    tileHover    = Color(130, 130, 130),
-    slot         = Color(46, 46, 46),
-    iconDim      = Color(255, 255, 255, 70),
-    warn         = Color(255, 120, 0)
+    black         = Color(0, 0, 0, 255),
+    background    = Color(24, 24, 24),
+    white         = Color(255, 255, 255),
+    grey          = Color(150, 150, 150),
+    darkGrey      = Color(110, 110, 110),
+    green         = Color(70, 220, 90),
+    tickgreen     = Color(0, 255, 0, 255),
+    orange        = Color(255, 170, 60),
+    red           = Color(230, 60, 60),
+    titleBar      = Color(50, 50, 50),
+    tile          = Color(38, 38, 38),
+    tileSelected  = Color(26, 50, 30),
+    tileHover     = Color(130, 130, 130),
+    slot          = Color(46, 46, 46),
+    iconDim       = Color(255, 255, 255, 70),
+    warn          = Color(255, 120, 0),
+    begin         = Color(0, 210, 0),
+    beginHovered  = Color(0, 170, 0),
+    cancel        = Color(255, 0, 0),
+    cancelHovered = Color(200, 0, 0)
 }
 
 surface.CreateFont("DraftSettings_Tooltip", {
@@ -61,6 +65,13 @@ surface.CreateFont("DraftSettings_Config", {
     font = "Tahoma",
     size = 16,
     weight = 600
+})
+
+surface.CreateFont("DraftSettings_BeginCancelButtons", {
+    font = "Tahoma",
+    size = 26,
+    weight = 500,
+    shadow = true
 })
 
 surface.CreateFont("DraftSettings_Name", {
@@ -129,15 +140,15 @@ local slotButtonsH = 96
 
 local draftData   = nil
 local tabBase     = nil
-local statusLabel = nil
+local saveStatus = nil
 local openPopups  = {}
 local RebuildSlots
 
 -- Saving/saved label
 local function SetStatus(text, colour)
-    if IsValid(statusLabel) then
-        statusLabel:SetText(text)
-        statusLabel:SetTextColor(colour or colours.grey)
+    if IsValid(saveStatus) then
+        saveStatus:SetText(text)
+        saveStatus:SetTextColor(colour or colours.grey)
     end
 end
 
@@ -1115,31 +1126,20 @@ end
 -- The actual tab
 ----------------------------------------------------------------------------------------------------
 
-local function AddLabel(scrollWindowCanvas, text, font, colour, height, wrap)
-    local label = VGUICreate("DLabel", scrollWindowCanvas)
-    label:Dock(TOP)
-    label:SetTall(height)
-    label:SetFont(font)
-    label:SetTextColor(colour)
-    label:SetText(text)
-    label:SetWrap(wrap or false)
-
-    return label
-end
-
 -- Config section
 local function AddSeparator(parent)
-    local sep = VGUICreate("DPanel", parent)
-    sep:Dock(TOP)
-    sep:SetTall(16)
-    sep:SetPaintBackground(false)
-    sep.Paint = function(_, w, h)
+    local separator = VGUICreate("DPanel", parent)
+    separator:Dock(TOP)
+    separator:SetTall(16)
+    separator:SetPaintBackground(false)
+    separator.Paint = function(_, w, h)
         local lineW = w * (9 / 10)
         local lineX = (w - lineW) / 2
         SurfaceSetDrawColor(255, 255, 255, 255)
         SurfaceDrawRect(lineX, h / 2 - 1, lineW, 1)
     end
-    return sep
+
+    return separator
 end
 
 local function AddConfigRow(parent, labelText, defaultValue, convar, itemType, tooltipText)
@@ -1173,10 +1173,53 @@ local function AddConfigRow(parent, labelText, defaultValue, convar, itemType, t
 
         local dropDown = VGUICreate("DComboBox", configRow)
         dropDown:Dock(RIGHT)
-        dropDown:SetSize(160, 24)
+        dropDown:SetSize(120, 24)
         dropDown:AddChoice("Never", 0, currentValue == "0")
         dropDown:AddChoice("If player is up next", 1, currentValue == "1")
         dropDown:AddChoice("Always", 2, currentValue == "2")
+
+        -- This was the worst. I set the size of the box to the correct width for the text but, because the actual dropdown
+        -- menu reserves space on the left for icons EVEN IF THERE ARE NO ICONS, the menu draws wider than the box... and
+        -- if you make the menu smaller, the text STILL DRAWS OFFSET FROM THE LEFT because of the reserved space, so the
+        -- text is cut off! Now, I COULD have just accepted the menu being wider than the box, but I'm a masochist so now
+        -- we're drawing the menu manually because why not?
+        function dropDown:OpenMenu()
+            if IsValid(self.Menu) then
+                self.Menu:Remove()
+            end
+
+            -- Everything to do with panels' positioning seems to be relative to its parent panel EXCEPT, apparently, for
+            -- the drop down menu, which is relative to the screen? So without LocalToScreen you click the box and the menu
+            -- appears some-fucking-where else on the screen entirely.
+            local menuX, menuY = self:LocalToScreen(0, self:GetTall())
+            local menu = VGUICreate("DMenu")
+            menu:SetMinimumWidth(120)
+            TableInsert(openPopups, menu)
+
+            for i, choiceText in ipairs(self.Choices) do
+                local option = menu:AddOption(choiceText, function()
+                    self:ChooseOption(choiceText, self.Data[i] + 1)
+                end)
+
+                option:SetWide(120)
+                option:SetText("")
+
+                option.Paint = function(this, w, h)
+                    if this:IsHovered() then
+                        -- 1-pixel dark blue outline, then a light blue background, to match how the menu normally looks
+                        SurfaceSetDrawColor(103, 155, 247, 255)
+                        SurfaceDrawRect(2, 2, w - 4, h - 4)
+                        SurfaceSetDrawColor(199, 218, 245, 255)
+                        SurfaceDrawRect(3, 3, w - 6, h - 6)
+                    end
+
+                    DrawSimpleText(choiceText, "DermaDefault", 8, h / 2, colours.black, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+                end
+            end
+
+            menu:Open(menuX, menuY)
+            self.Menu = menu
+        end
 
         if tooltipText then
             dropDown:SetTooltip(tooltipText)
@@ -1193,10 +1236,10 @@ local function AddConfigRow(parent, labelText, defaultValue, convar, itemType, t
         textEntry:SetValue(currentValue)
 
         textEntry.OnChange = function(self)
-            local val = self:GetValue()
+            local value = self:GetValue()
             timer.Create("DraftConfig_" .. convar, 0.3, 1, function()
                 if ConVarExists(convar) then
-                    RunConsoleCommand(convar, val)
+                    RunConsoleCommand(convar, value)
                 end
             end)
         end
@@ -1280,7 +1323,45 @@ local function BuildTab(basePanel, data)
     local scrollWindowCanvas = scrollWindow:GetCanvas()
     slotsCanvas = scrollWindowCanvas
 
+    --------------------------------------------------------------------
+    -- Begin/cancel draft buttons
+    --------------------------------------------------------------------
+    local actionButtonRow = VGUICreate("DPanel", scrollWindowCanvas)
+    actionButtonRow:Dock(TOP)
+    actionButtonRow:DockMargin(0, 8, 0, 8)
+    actionButtonRow:DockPadding(90, 0, 90, 0)
+    actionButtonRow:SetTall(30)
+    actionButtonRow:SetPaintBackground(false)
+
+    local buttonBeginDraft = VGUICreate("DButton", actionButtonRow)
+    buttonBeginDraft:Dock(LEFT)
+    buttonBeginDraft:SetWide(150)
+    buttonBeginDraft:SetText("Begin Draft")
+    buttonBeginDraft:SetTextColor(colours.white)
+    buttonBeginDraft:SetFont("DraftSettings_BeginCancelButtons")
+    buttonBeginDraft.Paint = function(self, w, h)
+        DrawRoundedBox(4, 0, 0, w, h, self:IsHovered() and colours.beginHovered or colours.begin)
+    end
+    buttonBeginDraft.DoClick = function()
+        RunConsoleCommand("ttt_draft_begin")
+    end
+
+    local buttonCancelDraft = VGUICreate("DButton", actionButtonRow)
+    buttonCancelDraft:Dock(RIGHT)
+    buttonCancelDraft:SetWide(150)
+    buttonCancelDraft:SetText("Cancel Draft")
+    buttonCancelDraft:SetTextColor(colours.white)
+    buttonCancelDraft:SetFont("DraftSettings_BeginCancelButtons")
+    buttonCancelDraft.Paint = function(self, w, h)
+        DrawRoundedBox(4, 0, 0, w, h, self:IsHovered() and colours.cancelHovered or colours.cancel)
+    end
+    buttonCancelDraft.DoClick = function()
+        RunConsoleCommand("ttt_draft_cancel")
+    end
+
+    --------------------------------------------------------------------
     -- Config section
+    --------------------------------------------------------------------
     local configSection = CreateConfigSection(scrollWindowCanvas, "Role Draft Config")
     local configContent = configSection.content
 
@@ -1293,13 +1374,9 @@ local function BuildTab(basePanel, data)
     AddConfigRow(configContent, "Prep Time", "10", "ttt_draft_prep_time", "int")
     AddConfigRow(configContent, "Turn Time", "5", "ttt_draft_turn_time", "int")
     AddConfigRow(configContent, "End Time", "10", "ttt_draft_end_time", "int")
-
-    AddSeparator(configContent)
-
+        AddSeparator(configContent)
     AddConfigRow(configContent, "Show turn previews", "2", "ttt_draft_show_next", "dropDown", showNextTooltip)
-
-    AddSeparator(configContent)
-
+        AddSeparator(configContent)
     AddConfigRow(configContent, "Detective Picks", "3", "ttt_draft_detective_picks", "int")
     AddConfigRow(configContent, "Detective Bans", "1", "ttt_draft_detective_bans", "int")
     AddConfigRow(configContent, "Innocent Picks", "5", "ttt_draft_innocent_picks", "int")
@@ -1311,37 +1388,55 @@ local function BuildTab(basePanel, data)
     AddConfigRow(configContent, "Monster Picks", "0", "ttt_draft_monster_picks", "int")
     AddConfigRow(configContent, "Monster Bans", "0", "ttt_draft_monster_bans", "int")
 
-    -- Title text with 'Saved' message
-    local titleRow = VGUICreate("DPanel", scrollWindowCanvas)
-    titleRow:Dock(TOP)
-    titleRow:SetTall(36)
-    titleRow:SetPaintBackground(false)
+    --------------------------------------------------------------------
+    -- Role selection
+    --------------------------------------------------------------------
 
-    local draftRolesTitle = VGUICreate("DLabel", titleRow)
+    -- 'Select Draft Roles' title
+    local draftRolesTitle = VGUICreate("DLabel", scrollWindowCanvas)
     draftRolesTitle:Dock(TOP)
-    draftRolesTitle:SetTall(28)
+    draftRolesTitle:DockMargin(0, 0, 0, 6)
+    draftRolesTitle:SetTall(36)
     draftRolesTitle:SetFont("Trebuchet24")
     draftRolesTitle:SetTextColor(colours.white)
     draftRolesTitle:SetText("Select Draft Roles")
 
-    statusLabel = VGUICreate("DLabel", draftRolesTitle)
-    statusLabel:Dock(RIGHT)
-    statusLabel:SetWide(190)
-    statusLabel:SetContentAlignment(6)
-    statusLabel:SetText("Changes save automatically")
-    statusLabel:SetTextColor(colours.grey)
+    -- Save status info
+    saveStatus = VGUICreate("DLabel", draftRolesTitle)
+    saveStatus:Dock(RIGHT)
+    saveStatus:DockMargin(0, 0, 6, 0)
+    saveStatus:SetWide(190)
+    saveStatus:SetContentAlignment(6)
+    saveStatus:SetText("Changes save automatically")
+    saveStatus:SetTextColor(colours.grey)
+    saveStatus:SetFont("DraftSettings_Config")
 
     BuildRoleSections(scrollWindowCanvas)
 
-    -- Slots
-    local slotsHeading = AddLabel(scrollWindowCanvas, "Role Pack Slots", "Trebuchet24", colours.white, 28)
-    slotsHeading:DockMargin(0, 0, 0, 0)
-    AddLabel(scrollWindowCanvas, "Add role groups (every role picked for that group in the draft) and/or constants (specific roles).", "DermaDefault", colours.grey, 34, true)
+    --------------------------------------------------------------------
+    -- Role pack slots configuration
+    --------------------------------------------------------------------
+
+    -- Draft role pack slots title
+    local slotsTitle = VGUICreate("DLabel", scrollWindowCanvas)
+    slotsTitle:Dock(TOP)
+    slotsTitle:DockMargin(0, 3, 0, 0)
+    slotsTitle:SetTall(28)
+    slotsTitle:SetFont("Trebuchet24")
+    slotsTitle:SetTextColor(colours.white)
+    slotsTitle:SetText("Role Pack Slots")
+
+    local slotsHint = VGUICreate("DLabel", scrollWindowCanvas)
+    slotsHint:Dock(TOP)
+    slotsHint:SetTall(28)
+    slotsHint:SetFont("DraftSettings_Config")
+    slotsHint:SetTextColor(colours.grey)
+    slotsHint:SetText("Add groups (all roles drafted for that team) and/or specific roles.")
 
     -- 'Allow duplicates' tickbox
     local allowDuplicates = VGUICreate("DCheckBoxLabel", scrollWindowCanvas)
     allowDuplicates:Dock(TOP)
-    allowDuplicates:DockMargin(0, 2, 0, 10)
+    allowDuplicates:DockMargin(0, 5, 0, 10)
     allowDuplicates:SetTall(20)
     allowDuplicates:SetText("Allow duplicate roles")
     allowDuplicates:SetTextColor(colours.white)
