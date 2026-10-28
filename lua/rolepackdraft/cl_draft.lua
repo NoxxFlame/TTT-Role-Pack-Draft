@@ -5,6 +5,7 @@ local GUIEnableScreenClicker = gui.EnableScreenClicker
 local InputGetCursorPos = input.GetCursorPos
 local InputIsMouseDown = input.IsMouseDown
 local MathCeil = math.ceil
+local MathFloor = math.floor
 local MathMax = math.max
 local MathRandom = math.random
 local PlayerGetBySteamID64 = player.GetBySteamID64
@@ -248,13 +249,32 @@ local function CalculateBottomIconPositions(draftOrder)
     return {["x"] = x, ["width"] = width, ["order"] = draftOrder}
 end
 
+local middleMaxWidth = scrW * 0.8
+local middleMaxIcons = MathFloor((middleMaxWidth + largeIconMargin) / (largeIconSize + largeIconMargin))
+
 local function CalculateCentreIconPositions(roles)
     local positions = {}
+
     for team = ROLE_TEAM_INNOCENT, ROLE_TEAM_DETECTIVE do
-        local width = #roles[team] * (largeIconSize + largeIconMargin) - largeIconMargin
-        local x = (scrW - width) / 2
-        positions[team] = {["x"] = x}
+        local rowAmount = MathCeil(#roles[team] / middleMaxIcons)
+        local fullRows  = MathFloor(#roles[team] / middleMaxIcons)
+        local remainder = #roles[team] % middleMaxIcons
+
+        local fullW = middleMaxIcons * (largeIconSize + largeIconMargin) - largeIconMargin
+        local fullX = (scrW - fullW) / 2
+
+        local remainderW = remainder * (largeIconSize + largeIconMargin) - largeIconMargin
+        local remainderX = (scrW - remainderW) / 2
+
+        positions[team] = {
+            rowAmount  = rowAmount,
+            fullRows   = fullRows,
+            fullX      = fullX,
+            remainder  = remainder,
+            remainderX = remainder > 0 and remainderX or nil
+        }
     end
+
     return positions
 end
 
@@ -499,16 +519,16 @@ local mouseDown = false
 local lastRandomSelect = 0
 local lastRandomIndex = 0
 
-local pickedY     = smallIconMargin
-local bannedY     = smallIconSize + (2 * smallIconMargin)
-local topDivY     = (1.5 * smallIconMargin) + (0.5 * smallIconSize)
-local timerY      = (2 * smallIconSize) + (3 * smallIconMargin)
-local bottomPosY  = scrH - smallIconSize - smallIconMargin
-local centrePosY  = (scrH - largeIconSize) / 2
-local centreDivY  = (scrH + largeIconSize) / 2 + largeIconMargin + smallIconMargin
-local upNextY     = (3 * smallIconSize) + (4 * smallIconMargin)
-local messageY    = centreDivY + (2 * smallIconMargin)
-local previewY    = scrH * 4 / 5
+local pickedY    = smallIconMargin
+local bannedY    = smallIconSize + (2 * smallIconMargin)
+local topDivY    = (1.5 * smallIconMargin) + (0.5 * smallIconSize)
+local timerY     = (2 * smallIconSize) + (3 * smallIconMargin)
+local bottomPosY = scrH - smallIconSize - smallIconMargin
+local centrePosY = (scrH - largeIconSize) / 2
+local centreDivY = (scrH + largeIconSize) / 2 + largeIconMargin + smallIconMargin
+local upNextY    = (3 * smallIconSize) + (4 * smallIconMargin)
+local messageY   = centreDivY + (2 * smallIconMargin)
+local previewY   = scrH * 4 / 5
 
 -- Cache role icons (this was the main FPS killer)
 local roleIconCache = {}
@@ -711,7 +731,8 @@ end
 local function DrawMiddleChoices()
     if draftPhase >= 1 and draftPhase <= #bottomPositions.order then
         local turn = bottomPositions.order[draftPhase]
-        local x = centrePositions[turn.team].x
+        local teamPos = centrePositions[turn.team]
+        local rowAmount = teamPos.rowAmount
 
         local cursorX, cursorY = -1, -1
         if PlayerGetBySteamID64(turn.player) == LocalPlayer() then
@@ -735,10 +756,21 @@ local function DrawMiddleChoices()
             end
         end
 
-        for _, role in ipairs(availableRoles[turn.team]) do
+        for i, role in ipairs(availableRoles[turn.team]) do
+            local row = MathCeil(i / middleMaxIcons)
+            local rowY = centrePosY - (rowAmount - row) * (largeIconSize + largeIconMargin)
+
+            local startX = teamPos.fullX
+            if row == rowAmount and teamPos.remainderX then
+                startX = teamPos.remainderX
+            end
+
+            local columnIndex = (i - 1) % middleMaxIcons
+            local x = startX + columnIndex * (largeIconSize + largeIconMargin)
+
             local hover = false
             local selected = selectedRole == role
-            if cursorX >= x and cursorX <= x + largeIconSize and cursorY >= centrePosY and cursorY <= centrePosY + largeIconSize then
+            if cursorX >= x and cursorX <= x + largeIconSize and cursorY >= rowY and cursorY <= rowY + largeIconSize then
                 if not TableHasValue(pickedRoles[turn.team], role) and not TableHasValue(bannedRoles[turn.team], role) then
                     hover = true
 
@@ -759,51 +791,50 @@ local function DrawMiddleChoices()
             if selected then
                 SurfaceSetDrawColor(GetRoleTeamColor(turn.team, "highlight"))
                 SurfaceSetMaterial(largeGlow)
-                SurfaceDrawTexturedRect(x - largeIconGlow, centrePosY - largeIconGlow, largeIconSize + (2 * largeIconGlow), largeIconSize + (2 * largeIconGlow))
+                SurfaceDrawTexturedRect(x - largeIconGlow, rowY - largeIconGlow, largeIconSize + (2 * largeIconGlow), largeIconSize + (2 * largeIconGlow))
             elseif hover then
                 SurfaceSetDrawColor(ColorAlpha(GetRoleTeamColor(turn.team, "highlight"), 128))
                 SurfaceSetMaterial(largeGlow)
-                SurfaceDrawTexturedRect(x - largeIconGlow, centrePosY - largeIconGlow, largeIconSize + (2 * largeIconGlow), largeIconSize + (2 * largeIconGlow))
+                SurfaceDrawTexturedRect(x - largeIconGlow, rowY - largeIconGlow, largeIconSize + (2 * largeIconGlow), largeIconSize + (2 * largeIconGlow))
             end
 
             DrawNoTexture()
             SurfaceSetDrawColor(COLOR_BLACK)
-            SurfaceDrawRect(x, centrePosY, largeIconSize, largeIconSize)
+            SurfaceDrawRect(x, rowY, largeIconSize, largeIconSize)
 
             if TableHasValue(pickedRoles[turn.team], role) or TableHasValue(bannedRoles[turn.team], role) then
                 SurfaceSetDrawColor(255, 255, 255, 32)
-                DrawSimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), centrePosY + largeIconSize + (0.25 * largeIconMargin), colours.choiceNameDark, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+                DrawSimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), rowY + largeIconSize + (0.25 * largeIconMargin), colours.choiceNameDark, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
             elseif selected or hover then
                 if turn.action == "ban" then
                     SurfaceSetDrawColor(255, 255, 255, 32)
                 else
                     SurfaceSetDrawColor(COLOR_WHITE)
                 end
-                DrawSimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), centrePosY + largeIconSize + (0.25 * largeIconMargin), COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+                DrawSimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), rowY + largeIconSize + (0.25 * largeIconMargin), COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
             else
                 SurfaceSetDrawColor(255, 255, 255, 191)
-                DrawSimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), centrePosY + largeIconSize + (0.25 * largeIconMargin), colours.choiceNameLight, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+                DrawSimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), rowY + largeIconSize + (0.25 * largeIconMargin), colours.choiceNameLight, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
             end
 
             SurfaceSetMaterial(ROLE_SPRITE_ICON_MATERIALS[ROLE_STRINGS_SHORT[role]])
-            SurfaceDrawTexturedRect(x, centrePosY, largeIconSize, largeIconSize)
+            SurfaceDrawTexturedRect(x, rowY, largeIconSize, largeIconSize)
 
             if turn.action == "ban" then
                 if selected then
                     SurfaceSetDrawColor(COLOR_WHITE)
                     SurfaceSetMaterial(largeBan)
-                    SurfaceDrawTexturedRect(x, centrePosY, largeIconSize, largeIconSize)
+                    SurfaceDrawTexturedRect(x, rowY, largeIconSize, largeIconSize)
                 elseif hover then
                     SurfaceSetDrawColor(255, 255, 255, 191)
                     SurfaceSetMaterial(largeBan)
-                    SurfaceDrawTexturedRect(x, centrePosY, largeIconSize, largeIconSize)
+                    SurfaceDrawTexturedRect(x, rowY, largeIconSize, largeIconSize)
                 end
             end
 
             SurfaceSetDrawColor(GetRoleTeamColor(turn.team, "highlight"))
             SurfaceSetMaterial(largeOutline)
-            SurfaceDrawTexturedRect(x - largeIconOutline, centrePosY - largeIconOutline, largeIconSize + (2 * largeIconOutline), largeIconSize + (2 * largeIconOutline))
-            x = x + largeIconSize + largeIconMargin
+            SurfaceDrawTexturedRect(x - largeIconOutline, rowY - largeIconOutline, largeIconSize + (2 * largeIconOutline), largeIconSize + (2 * largeIconOutline))
         end
     end
 end
@@ -835,13 +866,12 @@ local function DrawNextPreviews()
         end
 
         if targetTurn then
-            local nextX = centrePositions[targetTurn.team].x
+            local teamPos = centrePositions[targetTurn.team]
+            local rowAmount = teamPos.rowAmount
 
             local previewSize   = 48
             local previewMargin = 40
-
-            local previewWidth = #availableRoles[targetTurn.team] * (previewSize + previewMargin) - previewMargin
-            nextX = (scrW - previewWidth) / 2
+            local newRowOffset  = previewSize + 32
 
             -- Get cursor location for hover detection
             local cursorX, cursorY = InputGetCursorPos()
@@ -859,17 +889,29 @@ local function DrawNextPreviews()
                 TableInsert(message, {["text"] = actionText, ["color"] = actionColor})
                 TableInsert(message, {["text"] = " " .. teamArticle[targetTurn.team], ["color"] = COLOR_WHITE})
                 TableInsert(message, {["text"] = " " .. teamNames[targetTurn.team], ["color"] = teamColour})
+
                 for _, text in ipairs(message) do
                     text.color = ColorAlpha(text.color, 220)
                 end
+
                 DrawColoredText(message, "DraftSmall", scrW / 2, previewY - previewSize / 2 - 35 - iconOffsetY, TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
             end
 
             local hoveredRole = nil
 
             -- Draw preview icons
-            for _, role in ipairs(availableRoles[targetTurn.team]) do
-                local iconY = previewY - previewSize / 2 - iconOffsetY
+            for i, role in ipairs(availableRoles[targetTurn.team]) do
+                local row = MathCeil(i / middleMaxIcons)
+                local rowOffsetY = (row - 1) * newRowOffset
+
+                local rowCount = (row == rowAmount and teamPos.remainder > 0) and teamPos.remainder or middleMaxIcons
+                local rowWidth = rowCount * (previewSize + previewMargin) - previewMargin
+                local nextX = (scrW - rowWidth) / 2
+
+                local column = (i - 1) % middleMaxIcons
+                nextX = nextX + column * (previewSize + previewMargin)
+
+                local iconY = previewY - previewSize / 2 - iconOffsetY + rowOffsetY
                 local isHovered = (cursorX >= nextX and cursorX <= nextX + previewSize and cursorY >= iconY and cursorY <= iconY + previewSize)
 
                 if isHovered then
@@ -910,7 +952,7 @@ local function DrawNextPreviews()
                     ROLE_STRINGS[role],
                     "DraftName",
                     nextX + (0.5 * previewSize),
-                    previewY + previewSize / 2 + 4 - iconOffsetY,
+                    iconY + previewSize + 4,
                     nameColor,
                     TEXT_ALIGN_CENTER,
                     TEXT_ALIGN_TOP
@@ -920,22 +962,21 @@ local function DrawNextPreviews()
                 SurfaceSetDrawColor(ColorAlpha(GetRoleTeamColor(targetTurn.team, "highlight"), isHovered and 255 or 150))
                 SurfaceSetMaterial(smallOutline)
                 SurfaceDrawTexturedRect(nextX - smallIconOutline, iconY - smallIconOutline, previewSize + (2 * smallIconOutline), previewSize + (2 * smallIconOutline))
-
-                nextX = nextX + previewSize + previewMargin
             end
 
-            -- Draw role description underneath preview names if hovered
+            -- Draw role description if hovered
             if hoveredRole then
                 local descText = "This role doesn't have a description :("
                 if LANG and LANG.GetRawTranslation then
                     descText = LANG.GetRawTranslation("cheatsheet_desc_" .. ROLE_STRINGS_RAW[hoveredRole]) or descText
                 end
 
+                local totalRowOffset = (rowAmount - 1) * newRowOffset
                 DrawSimpleText(
                     descText,
                     "DraftDescription",
                     scrW / 2,
-                    previewY + previewSize + smallIconMargin - iconOffsetY,
+                    previewY + previewSize + smallIconMargin - iconOffsetY + totalRowOffset,
                     colours.roleDescription,
                     TEXT_ALIGN_CENTER,
                     TEXT_ALIGN_TOP
@@ -1017,11 +1058,13 @@ local function DrawStatusMessages()
 
         TableInsert(message, {["text"] = " " .. teamArticle[turn.team], ["color"] = COLOR_WHITE})
         TableInsert(message, {["text"] = " " .. teamNames[turn.team], ["color"] = GetRoleTeamColor(turn.team, "highlight")})
-        DrawColoredText(message, "DraftLarge", x, (scrH - largeIconSize) / 2 - (0.5 * largeIconMargin), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
+
+        local messageRows = MathMax(centrePositions[turn.team].rowAmount, 1)
+        DrawColoredText(message, "DraftLarge", x, centrePosY - (0.5 * largeIconMargin) - ((messageRows - 1) * (largeIconSize + largeIconMargin)), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
 
         DrawNoTexture()
         SurfaceSetDrawColor(COLOR_WHITE)
-        SurfaceDrawRect(centrePositions[turn.team].x - smallIconSize, centreDivY, scrW + (2 * smallIconSize) - (2 * centrePositions[turn.team].x), groupDividerWidth / 2)
+        SurfaceDrawRect(centrePositions[turn.team].fullX - smallIconSize, centreDivY, scrW + (2 * smallIconSize) - (2 * centrePositions[turn.team].fullX), groupDividerWidth / 2)
         messageY = centreDivY + (2 * smallIconMargin)
 
         if draftPhase > 1 then
@@ -1101,7 +1144,7 @@ local function DrawStatusMessages()
         end
 
         -- Draw dividing line above preview row
-        SurfaceDrawRect(centrePositions[turn.team].x, messageY + 38 + (2 * smallIconMargin), scrW - (2 * centrePositions[turn.team].x), groupDividerWidth / 2)
+        SurfaceDrawRect(centrePositions[turn.team].fullX, messageY + 38 + (2 * smallIconMargin), scrW - (2 * centrePositions[turn.team].fullX), groupDividerWidth / 2)
     end
 
     if draftPhase < #bottomPositions.order then
