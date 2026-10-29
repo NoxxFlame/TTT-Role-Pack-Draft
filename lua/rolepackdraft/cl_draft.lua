@@ -92,6 +92,13 @@ surface.CreateFont("DraftTimer", {
     weight = 1000
 })
 
+surface.CreateFont("DraftSmaller", {
+    font = "Tahoma",
+    size = 24,
+    weight = 58,
+    italic = true
+})
+
 surface.CreateFont("DraftSmall", {
     font = "Tahoma",
     size = 38,
@@ -519,16 +526,18 @@ local mouseDown = false
 local lastRandomSelect = 0
 local lastRandomIndex = 0
 
+local CENTRAL_STUFF_OFFSET_Y = 20
+
 local pickedY    = smallIconMargin
 local bannedY    = smallIconSize + (2 * smallIconMargin)
 local topDivY    = (1.5 * smallIconMargin) + (0.5 * smallIconSize)
 local timerY     = (2 * smallIconSize) + (3 * smallIconMargin)
 local bottomPosY = scrH - smallIconSize - smallIconMargin
-local centrePosY = (scrH - largeIconSize) / 2
-local centreDivY = (scrH + largeIconSize) / 2 + largeIconMargin + smallIconMargin
+local centrePosY = (scrH - largeIconSize) / 2 - CENTRAL_STUFF_OFFSET_Y
+local centreDivY = (scrH + largeIconSize) / 2 + largeIconMargin + smallIconMargin - CENTRAL_STUFF_OFFSET_Y
 local upNextY    = (3 * smallIconSize) + (4 * smallIconMargin)
-local messageY   = centreDivY + (2 * smallIconMargin)
-local previewY   = scrH * 4 / 5
+local messageY   = centreDivY + (2 * smallIconMargin) - CENTRAL_STUFF_OFFSET_Y
+local previewY   = scrH * 4 / 5 - CENTRAL_STUFF_OFFSET_Y
 
 -- Cache role icons (this was the main FPS killer)
 local roleIconCache = {}
@@ -875,16 +884,22 @@ local function DrawNextPreviews()
 
             -- Get cursor location for hover detection
             local cursorX, cursorY = InputGetCursorPos()
-            local iconOffsetY = turnsUntilPick <= 1 and 70 or 0
+            local iconOffsetY = 0
+
+            -- Draw "Your next turn preview:" hint text
+            DrawSimpleText("Your next turn preview:", "DraftSmaller", scrW / 2, previewY - previewSize / 2 - iconOffsetY - 28, Color(255, 255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 
             -- Draw "IN x TURNS" text
-            if showNext == 2 and turnsUntilPick > 1 then
+            if showNext == 2 then -- and turnsUntilPick > 1 then
                 local actionText  = targetTurn.action == "pick" and "PICKING" or "BANNING"
                 local actionColor = targetTurn.action == "pick" and GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight") or GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
                 local teamColour  = GetRoleTeamColor(targetTurn.team, "highlight")
 
+                turnsUntilPick = draftPhase > 0 and turnsUntilPick or turnsUntilPick - 1
+
                 local message = {}
-                TableInsert(message, {["text"] = StringFormat("IN %d TURNS: ", turnsUntilPick), ["color"] = COLOR_WHITE})
+                local turnText = turnsUntilPick == 1 and "TURN: " or "TURNS: "
+                TableInsert(message, {["text"] = StringFormat("IN %d " .. turnText, turnsUntilPick), ["color"] = COLOR_WHITE})
                 TableInsert(message, {["text"] = "YOU ARE ", ["color"] = COLOR_WHITE})
                 TableInsert(message, {["text"] = actionText, ["color"] = actionColor})
                 TableInsert(message, {["text"] = " " .. teamArticle[targetTurn.team], ["color"] = COLOR_WHITE})
@@ -894,7 +909,7 @@ local function DrawNextPreviews()
                     text.color = ColorAlpha(text.color, 220)
                 end
 
-                DrawColoredText(message, "DraftSmall", scrW / 2, previewY - previewSize / 2 - 35 - iconOffsetY, TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
+                DrawColoredText(message, "DraftSmall", scrW / 2, previewY - previewSize / 2 - 45 - iconOffsetY, TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
             end
 
             local hoveredRole = nil
@@ -976,7 +991,7 @@ local function DrawNextPreviews()
                     descText,
                     "DraftDescription",
                     scrW / 2,
-                    previewY + previewSize + smallIconMargin - iconOffsetY + totalRowOffset,
+                    previewY + previewSize + smallIconMargin - iconOffsetY + totalRowOffset - 6,
                     colours.roleDescription,
                     TEXT_ALIGN_CENTER,
                     TEXT_ALIGN_TOP
