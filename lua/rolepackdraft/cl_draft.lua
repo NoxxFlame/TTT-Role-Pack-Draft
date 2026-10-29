@@ -526,18 +526,26 @@ local mouseDown = false
 local lastRandomSelect = 0
 local lastRandomIndex = 0
 
+---------------------------------------------------------------
+-- Element y positioning
+---------------------------------------------------------------
+local pickedY = smallIconMargin
+local bannedY = smallIconSize + (2 * smallIconMargin)
+local topDivY = (1.5 * smallIconMargin) + (0.5 * smallIconSize)
+local timerY  = (2 * smallIconSize) + (3 * smallIconMargin)
+local upNextY = (3 * smallIconSize) + (4 * smallIconMargin)
+
 local CENTRAL_STUFF_OFFSET_Y = 20
 
-local pickedY    = smallIconMargin
-local bannedY    = smallIconSize + (2 * smallIconMargin)
-local topDivY    = (1.5 * smallIconMargin) + (0.5 * smallIconSize)
-local timerY     = (2 * smallIconSize) + (3 * smallIconMargin)
+local divBufferSmall = 1.5 * smallIconMargin -- 15
+local divBufferLarge = 1.5 * largeIconMargin -- 60
+local centreDivY     = (scrH + largeIconSize) / 2 + largeIconMargin + smallIconMargin - CENTRAL_STUFF_OFFSET_Y
+local selectionRowY  = centreDivY - (largeIconSize - largeIconOutline) - (0.5 * largeIconMargin - 12) - divBufferLarge - 20 -- Up by icon+ border size, then by role name text/margin size, then by buffer, and then by 20 for some reason?
+local resultTextY    = centreDivY + divBufferSmall
+local upNextTextY    = resultTextY + 38 -- 38 is the height of the result text gap
+local previewY       = upNextTextY + 82 + divBufferLarge -- This gives the same gap as between the selection row role names and the centre div line
+
 local bottomPosY = scrH - smallIconSize - smallIconMargin
-local centrePosY = (scrH - largeIconSize) / 2 - CENTRAL_STUFF_OFFSET_Y
-local centreDivY = (scrH + largeIconSize) / 2 + largeIconMargin + smallIconMargin - CENTRAL_STUFF_OFFSET_Y
-local upNextY    = (3 * smallIconSize) + (4 * smallIconMargin)
-local messageY   = centreDivY + (2 * smallIconMargin) - CENTRAL_STUFF_OFFSET_Y
-local previewY   = scrH * 4 / 5 - CENTRAL_STUFF_OFFSET_Y
 
 -- Cache role icons (this was the main FPS killer)
 local roleIconCache = {}
@@ -767,7 +775,7 @@ local function DrawMiddleChoices()
 
         for i, role in ipairs(availableRoles[turn.team]) do
             local row = MathCeil(i / middleMaxIcons)
-            local rowY = centrePosY - (rowAmount - row) * (largeIconSize + largeIconMargin)
+            local rowY = selectionRowY - (rowAmount - row) * (largeIconSize + largeIconMargin)
 
             local startX = teamPos.fullX
             if row == rowAmount and teamPos.remainderX then
@@ -845,12 +853,51 @@ local function DrawMiddleChoices()
             SurfaceSetMaterial(largeOutline)
             SurfaceDrawTexturedRect(x - largeIconOutline, rowY - largeIconOutline, largeIconSize + (2 * largeIconOutline), largeIconSize + (2 * largeIconOutline))
         end
+
+        local cursorHoverX, cursorHoverY = InputGetCursorPos()
+        for i, role in ipairs(availableRoles[turn.team]) do
+            local row = MathCeil(i / middleMaxIcons)
+            local rowY = selectionRowY - (rowAmount - row) * (largeIconSize + largeIconMargin)
+
+            local startX = teamPos.fullX
+            if row == rowAmount and teamPos.remainderX then
+                startX = teamPos.remainderX
+            end
+
+            local columnIndex = (i - 1) % middleMaxIcons
+            local x = startX + columnIndex * (largeIconSize + largeIconMargin)
+
+            local hoverDescription = false
+
+            if cursorHoverX >= x and cursorHoverX <= x + largeIconSize and cursorHoverY >= rowY and cursorHoverY <= rowY + largeIconSize then
+                hoverDescription = true
+            end
+
+            -- Draw role description if hovered
+            if hoverDescription then
+                local descText = "This role doesn't have a description :("
+                if LANG and LANG.GetRawTranslation then
+                    descText = LANG.GetRawTranslation("cheatsheet_desc_" .. ROLE_STRINGS_RAW[role]) or descText
+                end
+
+                DrawSimpleText(
+                    descText,
+                    "DraftDescription",
+                    scrW / 2,
+                    centreDivY - 32,
+                    colours.roleDescription,
+                    TEXT_ALIGN_CENTER,
+                    TEXT_ALIGN_CENTER
+                )
+            end
+        end
     end
 end
 
 local function DrawNextPreviews()
+    local targetTurn = nil
+
     if showNext > 0 and draftPhase < #bottomPositions.order then
-        local targetTurn     = nil
         local turnsUntilPick = 0
 
         if showNext == 1 then
@@ -886,11 +933,8 @@ local function DrawNextPreviews()
             local cursorX, cursorY = InputGetCursorPos()
             local iconOffsetY = 0
 
-            -- Draw "Your next turn preview:" hint text
-            DrawSimpleText("Your next turn preview:", "DraftSmaller", scrW / 2, previewY - previewSize / 2 - iconOffsetY - 28, Color(255, 255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-
             -- Draw "IN x TURNS" text
-            if showNext == 2 then -- and turnsUntilPick > 1 then
+            if showNext > 0 then -- and turnsUntilPick > 1 then
                 local actionText  = targetTurn.action == "pick" and "PICKING" or "BANNING"
                 local actionColor = targetTurn.action == "pick" and GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight") or GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
                 local teamColour  = GetRoleTeamColor(targetTurn.team, "highlight")
@@ -898,9 +942,13 @@ local function DrawNextPreviews()
                 turnsUntilPick = draftPhase > 0 and turnsUntilPick or turnsUntilPick - 1
 
                 local message = {}
-                local turnText = turnsUntilPick == 1 and "TURN: " or "TURNS: "
-                TableInsert(message, {["text"] = StringFormat("IN %d " .. turnText, turnsUntilPick), ["color"] = COLOR_WHITE})
-                TableInsert(message, {["text"] = "YOU ARE ", ["color"] = COLOR_WHITE})
+                local turnText = turnsUntilPick == 1 and "turn: " or "turns: "
+                if turnsUntilPick == 0 then
+                    TableInsert(message, {["text"] = "Your next turn preview: up first, ", ["color"] = COLOR_WHITE})
+                else
+                    TableInsert(message, {["text"] = StringFormat("Your next turn preview: in %d " .. turnText, turnsUntilPick), ["color"] = COLOR_WHITE})
+                end
+                TableInsert(message, {["text"] = "you are ", ["color"] = COLOR_WHITE})
                 TableInsert(message, {["text"] = actionText, ["color"] = actionColor})
                 TableInsert(message, {["text"] = " " .. teamArticle[targetTurn.team], ["color"] = COLOR_WHITE})
                 TableInsert(message, {["text"] = " " .. teamNames[targetTurn.team], ["color"] = teamColour})
@@ -909,7 +957,11 @@ local function DrawNextPreviews()
                     text.color = ColorAlpha(text.color, 220)
                 end
 
-                DrawColoredText(message, "DraftSmall", scrW / 2, previewY - previewSize / 2 - 45 - iconOffsetY, TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
+                if showNext == 2 then
+                    DrawColoredText(message, "DraftSmaller", scrW / 2, previewY - previewSize / 2 - smallIconOutline - divBufferLarge / 2 - 2, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+                else
+                    DrawSimpleText("Your next turn preview:", "DraftSmaller", scrW / 2, previewY - previewSize / 2 - smallIconOutline - divBufferLarge / 2 - 2, Color(255, 255, 255, 220), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+                end
             end
 
             local hoveredRole = nil
@@ -1075,12 +1127,12 @@ local function DrawStatusMessages()
         TableInsert(message, {["text"] = " " .. teamNames[turn.team], ["color"] = GetRoleTeamColor(turn.team, "highlight")})
 
         local messageRows = MathMax(centrePositions[turn.team].rowAmount, 1)
-        DrawColoredText(message, "DraftLarge", x, centrePosY - (0.5 * largeIconMargin) - ((messageRows - 1) * (largeIconSize + largeIconMargin)), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
+        DrawColoredText(message, "DraftLarge", x, selectionRowY - (0.5 * largeIconMargin) - ((messageRows - 1) * (largeIconSize + largeIconMargin)), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
 
         DrawNoTexture()
         SurfaceSetDrawColor(COLOR_WHITE)
         SurfaceDrawRect(centrePositions[turn.team].fullX - smallIconSize, centreDivY, scrW + (2 * smallIconSize) - (2 * centrePositions[turn.team].fullX), groupDividerWidth / 2)
-        messageY = centreDivY + (2 * smallIconMargin)
+        -- resultTextY = centreDivY + (2 * smallIconMargin)
 
         if draftPhase > 1 then
             local lastTurn = bottomPositions.order[draftPhase - 1]
@@ -1118,9 +1170,9 @@ local function DrawStatusMessages()
                 text.color = ColorAlpha(text.color, 220)
             end
 
-            DrawColoredText(message, "DraftSmall", x, messageY, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            DrawColoredText(message, "DraftSmall", x, resultTextY, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
 
-            messageY = messageY + (0.65 * largeIconSize)
+            -- resultTextY = resultTextY + (0.65 * largeIconSize)
         end
 
         if draftPhase < #bottomPositions.order then
@@ -1155,11 +1207,13 @@ local function DrawStatusMessages()
                 text.color = ColorAlpha(text.color, 220)
             end
 
-            DrawColoredText(message, "DraftSmall", x, messageY, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            upNextTextY = draftPhase > 1 and resultTextY + 38 or resultTextY
+
+            DrawColoredText(message, "DraftSmall", x, upNextTextY, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
         end
 
         -- Draw dividing line above preview row
-        SurfaceDrawRect(centrePositions[turn.team].fullX, messageY + 38 + (2 * smallIconMargin), scrW - (2 * centrePositions[turn.team].fullX), groupDividerWidth / 2)
+        SurfaceDrawRect(centrePositions[turn.team].fullX, upNextTextY + 38 + divBufferSmall, scrW - (2 * centrePositions[turn.team].fullX), groupDividerWidth / 2)
     end
 
     if draftPhase < #bottomPositions.order then
