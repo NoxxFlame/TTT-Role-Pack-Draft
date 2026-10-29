@@ -1,3 +1,35 @@
+-- Cached global lookups
+local DrawNoTexture = draw.NoTexture
+local DrawSimpleText = draw.SimpleText
+local GUIEnableScreenClicker = gui.EnableScreenClicker
+local InputGetCursorPos = input.GetCursorPos
+local InputIsMouseDown = input.IsMouseDown
+local MathCeil = math.ceil
+local MathFloor = math.floor
+local MathMax = math.max
+local MathRandom = math.random
+local PlayerGetBySteamID64 = player.GetBySteamID64
+local StringFormat = string.format
+local StringUpper = string.upper
+local SurfaceDrawRect = surface.DrawRect
+local SurfaceDrawText = surface.DrawText
+local SurfaceDrawTexturedRect = surface.DrawTexturedRect
+local SurfaceGetTextSize = surface.GetTextSize
+local SurfacePlaySound = surface.PlaySound
+local SurfaceSetDrawColor = surface.SetDrawColor
+local SurfaceSetFont = surface.SetFont
+local SurfaceSetMaterial = surface.SetMaterial
+local SurfaceSetTextColor = surface.SetTextColor
+local SurfaceSetTextPos = surface.SetTextPos
+local TableHasValue = table.HasValue
+local TableInsert = table.insert
+local TableRemove = table.remove
+local VGUICreate = vgui.Create
+local VGUICursorVisible = vgui.CursorVisible
+
+local scrH = ScrH()
+local scrW = ScrW()
+
 local maxStreamLength = 65528
 
 local draft_innocent_picks = GetConVar("ttt_draft_innocent_picks")
@@ -17,6 +49,8 @@ local draft_prep_time = GetConVar("ttt_draft_prep_time")
 local draft_turn_time = GetConVar("ttt_draft_turn_time")
 local draft_end_time = GetConVar("ttt_draft_end_time")
 
+local showNext = GetConVar("ttt_draft_show_next"):GetInt()
+
 local smallIconSize = 32
 local smallIconMargin = 10
 local smallIconOutline = 2
@@ -29,16 +63,40 @@ local groupDividerWidth = 4
 local groupMargin = 10
 local timerWidth = 256
 
+-- Cached colours
+local colours = {
+    bottomIconLight  = Color(0, 0, 0, 223),
+    bottomIconDark   = Color(0, 0, 0, 127),
+    choiceNameLight  = Color(255, 255, 255, 191),
+    choiceNameDark   = Color(255, 255, 255, 32),
+    previewNameLight = Color(255, 255, 255, 180),
+    roleDescription  = Color(220, 220, 220, 230)
+}
+
 surface.CreateFont("DraftName", {
     font = "Tahoma",
     size = 16,
     weight = 1000
 })
 
+surface.CreateFont("DraftDescription", {
+    font = "Tahoma",
+    size = 24,
+    weight = 400,
+    italic = true
+})
+
 surface.CreateFont("DraftTimer", {
     font = "Tahoma",
     size = 32,
     weight = 1000
+})
+
+surface.CreateFont("DraftSmaller", {
+    font = "Tahoma",
+    size = 24,
+    weight = 58,
+    italic = true
 })
 
 surface.CreateFont("DraftSmall", {
@@ -72,42 +130,42 @@ local function CalculateTopIconPositions()
     local monsterBans = draft_monster_bans:GetInt()
     local detectivePicks = draft_detective_picks:GetInt()
     local detectiveBans = draft_detective_bans:GetInt()
-    
+
     local groups = 0
     local innocentGroupSize = 0
     if innocentPicks > 0 or innocentBans > 0 then
         groups = groups + 1
-        innocentGroupSize = math.max(innocentPicks, innocentBans)
+        innocentGroupSize = MathMax(innocentPicks, innocentBans)
     end
     local traitorGroupSize = 0
     if traitorPicks > 0 or traitorBans > 0 then
         groups = groups + 1
-        traitorGroupSize = math.max(traitorPicks, traitorBans)
+        traitorGroupSize = MathMax(traitorPicks, traitorBans)
     end
     local jesterGroupSize = 0
     if jesterPicks > 0 or jesterBans > 0 then
         groups = groups + 1
-        jesterGroupSize = math.max(jesterPicks, jesterBans)
+        jesterGroupSize = MathMax(jesterPicks, jesterBans)
     end
     local independentGroupSize = 0
     if independentPicks > 0 or independentBans > 0 then
         groups = groups + 1
-        independentGroupSize = math.max(independentPicks, independentBans)
+        independentGroupSize = MathMax(independentPicks, independentBans)
     end
     local monsterGroupSize = 0
     if monsterPicks > 0 or monsterBans > 0 then
         groups = groups + 1
-        monsterGroupSize = math.max(monsterPicks, monsterBans)
+        monsterGroupSize = MathMax(monsterPicks, monsterBans)
     end
     local detectiveGroupSize = 0
     if detectivePicks > 0 or detectiveBans > 0 then
         groups = groups + 1
-        detectiveGroupSize = math.max(detectivePicks, detectiveBans)
+        detectiveGroupSize = MathMax(detectivePicks, detectiveBans)
     end
 
     local totalSize = innocentGroupSize + traitorGroupSize + jesterGroupSize + independentGroupSize + monsterGroupSize + detectiveGroupSize
     local width = ((groups - 1) * (groupDividerWidth + (2 * groupMargin))) + (totalSize * smallIconSize) + ((totalSize + groups - 2) * smallIconMargin)
-    local x = (ScrW() - width) / 2
+    local x = (scrW - width) / 2
 
     local groupPositions = {
         [ROLE_TEAM_INNOCENT] = {["picks"] = {["count"] = innocentPicks, ["x"] = 0}, ["bans"] = {["count"] = innocentBans, ["x"] = 0}},
@@ -122,7 +180,7 @@ local function CalculateTopIconPositions()
 
     -- Follow the same order as role packs (Det > Inn > Tra > Jes > Ind > Mon)
     if detectiveGroupSize > 0 then
-        table.insert(dividerPositions, x + ((smallIconSize + smallIconMargin) * detectiveGroupSize) + groupMargin)
+        TableInsert(dividerPositions, x + ((smallIconSize + smallIconMargin) * detectiveGroupSize) + groupMargin)
         if detectivePicks >= detectiveBans then
             groupPositions[ROLE_TEAM_DETECTIVE]["picks"]["x"] = x
             groupPositions[ROLE_TEAM_DETECTIVE]["bans"]["x"] = x + ((detectivePicks - detectiveBans) / 2) * (smallIconSize + smallIconMargin)
@@ -133,7 +191,7 @@ local function CalculateTopIconPositions()
         x = x + (detectiveGroupSize * (smallIconSize + smallIconMargin)) + groupDividerWidth + (2 * groupMargin) + smallIconMargin
     end
     if innocentGroupSize > 0 then
-        table.insert(dividerPositions, x + ((smallIconSize + smallIconMargin) * innocentGroupSize) + groupMargin)
+        TableInsert(dividerPositions, x + ((smallIconSize + smallIconMargin) * innocentGroupSize) + groupMargin)
         if innocentPicks >= innocentBans then
             groupPositions[ROLE_TEAM_INNOCENT]["picks"]["x"] = x
             groupPositions[ROLE_TEAM_INNOCENT]["bans"]["x"] = x + ((innocentPicks - innocentBans) / 2) * (smallIconSize + smallIconMargin)
@@ -144,7 +202,7 @@ local function CalculateTopIconPositions()
         x = x + (innocentGroupSize * (smallIconSize + smallIconMargin)) + groupDividerWidth + (2 * groupMargin) + smallIconMargin
     end
     if traitorGroupSize > 0 then
-        table.insert(dividerPositions, x + ((smallIconSize + smallIconMargin) * traitorGroupSize) + groupMargin)
+        TableInsert(dividerPositions, x + ((smallIconSize + smallIconMargin) * traitorGroupSize) + groupMargin)
         if traitorPicks >= traitorBans then
             groupPositions[ROLE_TEAM_TRAITOR]["picks"]["x"] = x
             groupPositions[ROLE_TEAM_TRAITOR]["bans"]["x"] = x + ((traitorPicks - traitorBans) / 2) * (smallIconSize + smallIconMargin)
@@ -155,7 +213,7 @@ local function CalculateTopIconPositions()
         x = x + (traitorGroupSize * (smallIconSize + smallIconMargin)) + groupDividerWidth + (2 * groupMargin) + smallIconMargin
     end
     if jesterGroupSize > 0 then
-        table.insert(dividerPositions, x + ((smallIconSize + smallIconMargin) * jesterGroupSize) + groupMargin)
+        TableInsert(dividerPositions, x + ((smallIconSize + smallIconMargin) * jesterGroupSize) + groupMargin)
         if jesterPicks >= jesterBans then
             groupPositions[ROLE_TEAM_JESTER]["picks"]["x"] = x
             groupPositions[ROLE_TEAM_JESTER]["bans"]["x"] = x + ((jesterPicks - jesterBans) / 2) * (smallIconSize + smallIconMargin)
@@ -166,7 +224,7 @@ local function CalculateTopIconPositions()
         x = x + (jesterGroupSize * (smallIconSize + smallIconMargin)) + groupDividerWidth + (2 * groupMargin) + smallIconMargin
     end
     if independentGroupSize > 0 then
-        table.insert(dividerPositions, x + ((smallIconSize + smallIconMargin) * independentGroupSize) + groupMargin)
+        TableInsert(dividerPositions, x + ((smallIconSize + smallIconMargin) * independentGroupSize) + groupMargin)
         if independentPicks >= independentBans then
             groupPositions[ROLE_TEAM_INDEPENDENT]["picks"]["x"] = x
             groupPositions[ROLE_TEAM_INDEPENDENT]["bans"]["x"] = x + ((independentPicks - independentBans) / 2) * (smallIconSize + smallIconMargin)
@@ -177,7 +235,7 @@ local function CalculateTopIconPositions()
         x = x + (independentGroupSize * (smallIconSize + smallIconMargin)) + groupDividerWidth + (2 * groupMargin) + smallIconMargin
     end
     if monsterGroupSize > 0 then
-        table.insert(dividerPositions, x + ((smallIconSize + smallIconMargin) * monsterGroupSize) + groupMargin)
+        TableInsert(dividerPositions, x + ((smallIconSize + smallIconMargin) * monsterGroupSize) + groupMargin)
         if monsterPicks >= monsterBans then
             groupPositions[ROLE_TEAM_MONSTER]["picks"]["x"] = x
             groupPositions[ROLE_TEAM_MONSTER]["bans"]["x"] = x + ((monsterPicks - monsterBans) / 2) * (smallIconSize + smallIconMargin)
@@ -187,24 +245,43 @@ local function CalculateTopIconPositions()
         end
     end
 
-    table.remove(dividerPositions)
+    TableRemove(dividerPositions)
 
     return {["groups"] = groupPositions, ["dividers"] = dividerPositions}
 end
 
 local function CalculateBottomIconPositions(draftOrder)
     local width = (#draftOrder * (smallIconSize + (2 * smallIconMargin))) - (2 * smallIconMargin)
-    local x = (ScrW() - width) / 2
+    local x = (scrW - width) / 2
     return {["x"] = x, ["width"] = width, ["order"] = draftOrder}
 end
 
+local middleMaxWidth = scrW * 0.8
+local middleMaxIcons = MathFloor((middleMaxWidth + largeIconMargin) / (largeIconSize + largeIconMargin))
+
 local function CalculateCentreIconPositions(roles)
     local positions = {}
+
     for team = ROLE_TEAM_INNOCENT, ROLE_TEAM_DETECTIVE do
-        local width = #roles[team] * (largeIconSize + largeIconMargin) - largeIconMargin
-        local x = (ScrW() - width) / 2
-        positions[team] = {["x"] = x}
+        local rowAmount = MathCeil(#roles[team] / middleMaxIcons)
+        local fullRows  = MathFloor(#roles[team] / middleMaxIcons)
+        local remainder = #roles[team] % middleMaxIcons
+
+        local fullW = middleMaxIcons * (largeIconSize + largeIconMargin) - largeIconMargin
+        local fullX = (scrW - fullW) / 2
+
+        local remainderW = remainder * (largeIconSize + largeIconMargin) - largeIconMargin
+        local remainderX = (scrW - remainderW) / 2
+
+        positions[team] = {
+            rowAmount  = rowAmount,
+            fullRows   = fullRows,
+            fullX      = fullX,
+            remainder  = remainder,
+            remainderX = remainder > 0 and remainderX or nil
+        }
     end
+
     return positions
 end
 
@@ -248,6 +325,8 @@ local randomSelection = false
 local previousSelection
 local selectedRole
 local frames = {}
+local mouseAutoEnabled = false
+local holdingTab = false
 
 local function BeginRolePackDraft(draftData)
     topPositions = CalculateTopIconPositions()
@@ -256,7 +335,6 @@ local function BeginRolePackDraft(draftData)
     availableRoles = draftData.roles
     draftPhase = 0
     nextPhaseTime = CurTime() + draft_prep_time:GetInt()
-
 end
 
 local buff = ""
@@ -323,6 +401,11 @@ net.Receive("TTT_EndRolePackDraft", function()
     previousSelection = nil
     selectedRole = nil
 
+    if VGUICursorVisible() then
+        GUIEnableScreenClicker(false)
+        mouseAutoEnabled = false
+    end
+
     for _, frame in pairs(frames) do
         frame:Close()
     end
@@ -336,9 +419,9 @@ net.Receive("TTT_NextRolePackDraft", function()
     previousSelection = net.ReadInt(util.RoleBits())
     if draftPhase > 0 then
         if bottomPositions.order[draftPhase].action == "pick" then
-            table.insert(pickedRoles[bottomPositions.order[draftPhase].team], previousSelection)
+            TableInsert(pickedRoles[bottomPositions.order[draftPhase].team], previousSelection)
         else
-            table.insert(bannedRoles[bottomPositions.order[draftPhase].team], previousSelection)
+            TableInsert(bannedRoles[bottomPositions.order[draftPhase].team], previousSelection)
         end
     end
     draftPhase = draftPhase + 1
@@ -351,15 +434,16 @@ net.Receive("TTT_NextRolePackDraft", function()
 
     local currentPlayer
     if draftPhase > 0 and draftPhase <= #bottomPositions.order then
-        currentPlayer = player.GetBySteamID64(bottomPositions.order[draftPhase].player)
+        currentPlayer = PlayerGetBySteamID64(bottomPositions.order[draftPhase].player)
     end
     if currentPlayer == LocalPlayer() then
-        surface.PlaySound("rolepackdraft/alert.wav")
+        SurfacePlaySound("rolepackdraft/alert.wav")
     end
 
     if draftPhase > #bottomPositions.order or currentPlayer ~= LocalPlayer() then
-        if vgui.CursorVisible() then
-            gui.EnableScreenClicker(false)
+        if VGUICursorVisible() and not holdingTab then
+            GUIEnableScreenClicker(false)
+            mouseAutoEnabled = false
         end
     end
 end)
@@ -382,15 +466,15 @@ hook.Add("HUDShouldDraw", "TTTDraft_HUDShouldDraw", function(name)
 end)
 
 local function DrawColoredText(textTable, font, x, y, xalign, yalign)
-    surface.SetFont(font)
+    SurfaceSetFont(font)
 
     local width = 0
     local height
     local widths = {}
     for _, text in ipairs(textTable) do
-        local w, h = surface.GetTextSize(text.text)
+        local w, h = SurfaceGetTextSize(text.text)
         if not height then height = h end
-        table.insert(widths, w)
+        TableInsert(widths, w)
         width = width + w
     end
 
@@ -407,15 +491,15 @@ local function DrawColoredText(textTable, font, x, y, xalign, yalign)
     end
 
     for i, text in ipairs(textTable) do
-        surface.SetTextPos(math.ceil(x), math.ceil(y))
+        SurfaceSetTextPos(MathCeil(x), MathCeil(y))
 
         if (text.color ~= nil) then
-            surface.SetTextColor(text.color.r, text.color.g, text.color.b, text.color.a)
+            SurfaceSetTextColor(text.color.r, text.color.g, text.color.b, text.color.a)
         else
-            surface.SetTextColor(255, 255, 255, 255)
+            SurfaceSetTextColor(255, 255, 255, 255)
         end
 
-        surface.DrawText(text.text)
+        SurfaceDrawText(text.text)
         x = x + widths[i]
     end
 
@@ -441,282 +525,661 @@ local teamNames = {
 local mouseDown = false
 local lastRandomSelect = 0
 local lastRandomIndex = 0
-hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
-    if draftPhase >= 0 then
-        draw.NoTexture()
-        surface.SetDrawColor(0, 0, 0, 220)
-        surface.DrawRect(0, 0, ScrW(), ScrH())
 
-        for team, group in pairs(topPositions.groups) do
-            local x = group.picks.x
-            local y = smallIconMargin
-            for slot = 1, group.picks.count do
-                local bright = false
-                if draftPhase >= 1 and draftPhase <= #bottomPositions.order then
-                    if bottomPositions.order[draftPhase].action == "pick" and bottomPositions.order[draftPhase].team == team then
-                        if slot == #pickedRoles[team] + 1 then
-                            bright = true
-                            surface.SetDrawColor(GetRoleTeamColor(team, "highlight"))
-                            surface.SetMaterial(smallGlow)
-                            surface.DrawTexturedRect(x - smallIconGlow, y - smallIconGlow, smallIconSize + (2 * smallIconGlow), smallIconSize + (2 * smallIconGlow))
-                        end
+---------------------------------------------------------------
+-- Element y positioning
+---------------------------------------------------------------
+local pickedY = smallIconMargin
+local bannedY = smallIconSize + (2 * smallIconMargin)
+local topDivY = (1.5 * smallIconMargin) + (0.5 * smallIconSize)
+local timerY  = (2 * smallIconSize) + (3 * smallIconMargin)
+local upNextY = (3 * smallIconSize) + (4 * smallIconMargin)
+
+local CENTRAL_STUFF_OFFSET_Y = 20
+
+local divBufferSmall = 1.5 * smallIconMargin -- 15
+local divBufferLarge = 1.5 * largeIconMargin -- 60
+local centreDivY     = (scrH + largeIconSize) / 2 + largeIconMargin + smallIconMargin - CENTRAL_STUFF_OFFSET_Y
+local selectionRowY  = centreDivY - (largeIconSize - largeIconOutline) - (0.5 * largeIconMargin - 12) - divBufferLarge - 20 -- Up by icon+ border size, then by role name text/margin size, then by buffer, and then by 20 for some reason?
+local resultTextY    = centreDivY + divBufferSmall
+local upNextTextY    = resultTextY + 38 -- 38 is the height of the result text gap
+local previewY       = upNextTextY + 82 + divBufferLarge -- This gives the same gap as between the selection row role names and the centre div line
+
+local bottomPosY = scrH - smallIconSize - smallIconMargin
+
+-- Cache role icons (this was the main FPS killer)
+local roleIconCache = {}
+local function GetRoleIconMaterial(roleShort)
+    local material = roleIconCache[roleShort]
+    if not material then
+        material = Material(util.GetRoleIconPath(roleShort, "score", "png"))
+        roleIconCache[roleShort] = material
+    end
+    return material
+end
+
+local function DrawTopRow()
+    for team, group in pairs(topPositions.groups) do
+        local x = group.picks.x
+
+        for slot = 1, group.picks.count do
+            local bright = false
+
+            if draftPhase >= 1 and draftPhase <= #bottomPositions.order then
+                if bottomPositions.order[draftPhase].action == "pick" and bottomPositions.order[draftPhase].team == team then
+                    if slot == #pickedRoles[team] + 1 then
+                        bright = true
+                        SurfaceSetDrawColor(GetRoleTeamColor(team, "highlight"))
+                        SurfaceSetMaterial(smallGlow)
+                        SurfaceDrawTexturedRect(x - smallIconGlow, pickedY - smallIconGlow, smallIconSize + (2 * smallIconGlow), smallIconSize + (2 * smallIconGlow))
                     end
                 end
-                draw.NoTexture()
-                surface.SetDrawColor(COLOR_BLACK)
-                surface.DrawRect(x, y, smallIconSize, smallIconSize)
-                surface.SetDrawColor(GetRoleTeamColor(team, "highlight"))
-                surface.SetMaterial(smallOutline)
-                surface.DrawTexturedRect(x - smallIconOutline, y - smallIconOutline, smallIconSize + (2 * smallIconOutline), smallIconSize + (2 * smallIconOutline))
-                if slot > #pickedRoles[team] then
-                    if bright then
-                        surface.SetDrawColor(COLOR_WHITE)
-                    else
-                        surface.SetDrawColor(255, 255, 255, 127)
-                    end
-                    surface.SetMaterial(pickIcon)
-                else
-                    surface.SetDrawColor(COLOR_WHITE)
-                    surface.SetMaterial(Material(util.GetRoleIconPath(ROLE_STRINGS_SHORT[pickedRoles[team][slot]], "score", "png")))
-                end
-                surface.DrawTexturedRect(x, y, smallIconSize, smallIconSize)
-                x = x + smallIconSize + smallIconMargin
             end
-            x = group.bans.x
-            y = smallIconSize + (2 * smallIconMargin)
-            for slot = 1, group.bans.count do
-                local bright = false
-                if draftPhase >= 1 and draftPhase <= #bottomPositions.order then
-                    if bottomPositions.order[draftPhase].action == "ban" and bottomPositions.order[draftPhase].team == team then
-                        if slot == #bannedRoles[team] + 1 then
-                            bright = true
-                            surface.SetDrawColor(GetRoleTeamColor(team, "highlight"))
-                            surface.SetMaterial(smallGlow)
-                            surface.DrawTexturedRect(x - smallIconGlow, y - smallIconGlow, smallIconSize + (2 * smallIconGlow), smallIconSize + (2 * smallIconGlow))
-                        end
-                    end
-                end
-                draw.NoTexture()
-                surface.SetDrawColor(COLOR_BLACK)
-                surface.DrawRect(x, y, smallIconSize, smallIconSize)
-                surface.SetDrawColor(GetRoleTeamColor(team, "highlight"))
-                surface.SetMaterial(smallOutline)
-                surface.DrawTexturedRect(x - smallIconOutline, y - smallIconOutline, smallIconSize + (2 * smallIconOutline), smallIconSize + (2 * smallIconOutline))
-                if slot > #bannedRoles[team] then
-                    if bright then
-                        surface.SetDrawColor(COLOR_WHITE)
-                    else
-                        surface.SetDrawColor(255, 255, 255, 127)
-                    end
-                    surface.SetMaterial(banIcon)
+
+            DrawNoTexture()
+            SurfaceSetDrawColor(COLOR_BLACK)
+            SurfaceDrawRect(x, pickedY, smallIconSize, smallIconSize)
+
+            SurfaceSetDrawColor(GetRoleTeamColor(team, "highlight"))
+            SurfaceSetMaterial(smallOutline)
+            SurfaceDrawTexturedRect(x - smallIconOutline, pickedY - smallIconOutline, smallIconSize + (2 * smallIconOutline), smallIconSize + (2 * smallIconOutline))
+
+            if slot > #pickedRoles[team] then
+                if bright then
+                    SurfaceSetDrawColor(COLOR_WHITE)
                 else
-                    surface.SetDrawColor(255, 255, 255, 32)
-                    surface.SetMaterial(Material(util.GetRoleIconPath(ROLE_STRINGS_SHORT[bannedRoles[team][slot]], "score", "png")))
+                    SurfaceSetDrawColor(255, 255, 255, 127)
                 end
-                surface.DrawTexturedRect(x, y, smallIconSize, smallIconSize)
-                x = x + smallIconSize + smallIconMargin
+                SurfaceSetMaterial(pickIcon)
+            else
+                SurfaceSetDrawColor(COLOR_WHITE)
+                SurfaceSetMaterial(GetRoleIconMaterial(ROLE_STRINGS_SHORT[pickedRoles[team][slot]]))
             end
+            SurfaceDrawTexturedRect(x, pickedY, smallIconSize, smallIconSize)
+            x = x + smallIconSize + smallIconMargin
         end
 
-        draw.NoTexture()
-        local y = (1.5 * smallIconMargin) + (0.5 * smallIconSize)
-        for _, divider in pairs(topPositions.dividers) do
-            surface.SetDrawColor(COLOR_WHITE)
-            surface.DrawRect(divider, y, groupDividerWidth, smallIconSize)
-        end
+        x = group.bans.x
 
-        y = (2 * smallIconSize) + (3 * smallIconMargin)
-        local time = math.max(0, nextPhaseTime - CurTime())
-        local progress
-        if draftPhase == 0 then
-            progress = time / draft_prep_time:GetInt()
-        elseif draftPhase > #bottomPositions.order then
-            progress = time / draft_end_time:GetInt()
+        for slot = 1, group.bans.count do
+            local bright = false
+            if draftPhase >= 1 and draftPhase <= #bottomPositions.order then
+                if bottomPositions.order[draftPhase].action == "ban" and bottomPositions.order[draftPhase].team == team then
+                    if slot == #bannedRoles[team] + 1 then
+                        bright = true
+                        SurfaceSetDrawColor(GetRoleTeamColor(team, "highlight"))
+                        SurfaceSetMaterial(smallGlow)
+                        SurfaceDrawTexturedRect(x - smallIconGlow, bannedY - smallIconGlow, smallIconSize + (2 * smallIconGlow), smallIconSize + (2 * smallIconGlow))
+                    end
+                end
+            end
+
+            DrawNoTexture()
+            SurfaceSetDrawColor(COLOR_BLACK)
+            SurfaceDrawRect(x, bannedY, smallIconSize, smallIconSize)
+
+            SurfaceSetDrawColor(GetRoleTeamColor(team, "highlight"))
+            SurfaceSetMaterial(smallOutline)
+            SurfaceDrawTexturedRect(x - smallIconOutline, bannedY - smallIconOutline, smallIconSize + (2 * smallIconOutline), smallIconSize + (2 * smallIconOutline))
+
+            if slot > #bannedRoles[team] then
+                if bright then
+                    SurfaceSetDrawColor(COLOR_WHITE)
+                else
+                    SurfaceSetDrawColor(255, 255, 255, 127)
+                end
+                SurfaceSetMaterial(banIcon)
+            else
+                SurfaceSetDrawColor(255, 255, 255, 32)
+                SurfaceSetMaterial(GetRoleIconMaterial(ROLE_STRINGS_SHORT[bannedRoles[team][slot]]))
+            end
+
+            SurfaceDrawTexturedRect(x, bannedY, smallIconSize, smallIconSize)
+            x = x + smallIconSize + smallIconMargin
+        end
+    end
+
+    DrawNoTexture()
+    for _, divider in pairs(topPositions.dividers) do
+        SurfaceSetDrawColor(COLOR_WHITE)
+        SurfaceDrawRect(divider, topDivY, groupDividerWidth, smallIconSize)
+    end
+end
+
+local function DrawTimerSection()
+    local time = MathMax(0, nextPhaseTime - CurTime())
+    local progress
+
+    if draftPhase == 0 then
+        progress = time / draft_prep_time:GetInt()
+    elseif draftPhase > #bottomPositions.order then
+        progress = time / draft_end_time:GetInt()
+    else
+        progress = time / draft_turn_time:GetInt()
+    end
+
+    DrawSimpleText(StringFormat("%05.2f", time), "DraftTimer", scrW / 2, timerY, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+    SurfaceDrawRect((scrW - (timerWidth * progress)) / 2, timerY + smallIconSize + (0.5 * smallIconMargin), timerWidth * progress, groupDividerWidth)
+end
+
+local function DrawBottomRow()
+    local x = bottomPositions.x
+
+    DrawNoTexture()
+    SurfaceSetDrawColor(COLOR_WHITE)
+    SurfaceDrawRect(x + (0.5 * smallIconSize), bottomPosY + (0.5 * (smallIconSize - groupDividerWidth)), bottomPositions.width - smallIconSize, groupDividerWidth)
+
+    if draftPhase >= 1 and draftPhase <= #bottomPositions.order then
+        SurfaceSetDrawColor(GetRoleTeamColor(bottomPositions.order[draftPhase].team, "highlight"))
+        SurfaceSetMaterial(smallGlow)
+        SurfaceDrawTexturedRect(x - smallIconGlow + ((draftPhase - 1) * (smallIconSize + (2 * smallIconMargin))), bottomPosY - smallIconGlow, smallIconSize + (2 * smallIconGlow), smallIconSize + (2 * smallIconGlow))
+    end
+
+    local createFrames = #frames == 0
+
+    for order, turn in ipairs(bottomPositions.order) do
+        if turn.player then
+            if createFrames then
+                local frame = VGUICreate("DFrame")
+                frame:SetPos(x, bottomPosY)
+                frame:SetSize(smallIconSize, smallIconSize)
+                frame:ShowCloseButton(false)
+                frame.Paint = function() end
+                frames[order] = frame
+                local avatar = VGUICreate("AvatarImage", frame)
+                avatar:SetPlayer(PlayerGetBySteamID64(turn.player))
+                avatar:SetSize(smallIconSize, smallIconSize)
+                frame.avatar = avatar
+                local panel = VGUICreate("DPanel", frame)
+                panel:SetSize(smallIconSize, smallIconSize)
+                frame.panel = panel
+            end
         else
-            progress = time / draft_turn_time:GetInt()
-        end
-        draw.SimpleText(string.format("%05.2f", time), "DraftTimer", ScrW() / 2, y, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
-        surface.DrawRect((ScrW() - (timerWidth * progress)) / 2, y + smallIconSize + (0.5 * smallIconMargin), (timerWidth * progress), groupDividerWidth)
+            DrawNoTexture()
+            SurfaceSetDrawColor(COLOR_BLACK)
+            SurfaceDrawRect(x, bottomPosY, smallIconSize, smallIconSize)
 
-        local x = bottomPositions.x
-        y = ScrH() - smallIconSize - smallIconMargin
-        draw.NoTexture()
-        surface.SetDrawColor(COLOR_WHITE)
-        surface.DrawRect(x + (0.5 * smallIconSize), y + (0.5 * (smallIconSize - groupDividerWidth)), bottomPositions.width - smallIconSize, groupDividerWidth)
-
-        if draftPhase >= 1 and draftPhase <= #bottomPositions.order then
-            surface.SetDrawColor(GetRoleTeamColor(bottomPositions.order[draftPhase].team, "highlight"))
-            surface.SetMaterial(smallGlow)
-            surface.DrawTexturedRect(x - smallIconGlow + ((draftPhase - 1) * (smallIconSize + (2 * smallIconMargin))), y - smallIconGlow, smallIconSize + (2 * smallIconGlow), smallIconSize + (2 * smallIconGlow))
-        end
-
-        local createFrames = #frames == 0
-
-        for order, turn in ipairs(bottomPositions.order) do
-            if turn.player then
-                if createFrames then
-                    local frame = vgui.Create("DFrame")
-                    frame:SetPos(x, y)
-                    frame:SetSize(smallIconSize, smallIconSize)
-                    frame:ShowCloseButton(false)
-                    frame.Paint = function() end
-                    frames[order] = frame
-                    local avatar = vgui.Create("AvatarImage", frame)
-                    avatar:SetPlayer(player.GetBySteamID64(turn.player))
-                    avatar:SetSize(smallIconSize, smallIconSize)
-                    frame.avatar = avatar
-                    local panel = vgui.Create("DPanel", frame)
-                    panel:SetSize(smallIconSize, smallIconSize)
-                    frame.panel = panel
-                end
-            else
-                draw.NoTexture()
-                surface.SetDrawColor(COLOR_BLACK)
-                surface.DrawRect(x, y, smallIconSize, smallIconSize)
-                if order < draftPhase then
-                    surface.SetDrawColor(255, 255, 255, 32)
-                elseif order > draftPhase then
-                    surface.SetDrawColor(255, 255, 255, 127)
-                else
-                    surface.SetDrawColor(COLOR_WHITE)
-                end
-                surface.SetMaterial(randomIcon)
-                surface.DrawTexturedRect(x, y, smallIconSize, smallIconSize)
-            end
-
-            surface.SetDrawColor(GetRoleTeamColor(turn.team, "highlight"))
-            surface.SetMaterial(smallOutline)
-            surface.DrawTexturedRect(x - smallIconOutline, y - smallIconOutline, smallIconSize + (2 * smallIconOutline), smallIconSize + (2 * smallIconOutline))
             if order < draftPhase then
-                surface.SetDrawColor(255, 255, 255, 32)
-                if turn.player then
-                    frames[order].panel:SetBackgroundColor(Color(0, 0, 0, 223))
-                    frames[order].panel:SetDrawBackground(true)
-                end
+                SurfaceSetDrawColor(255, 255, 255, 32)
             elseif order > draftPhase then
-                surface.SetDrawColor(255, 255, 255, 127)
-                if turn.player then
-                    frames[order].panel:SetBackgroundColor(Color(0, 0, 0, 127))
-                    frames[order].panel:SetDrawBackground(true)
-                end
+                SurfaceSetDrawColor(255, 255, 255, 127)
             else
-                surface.SetDrawColor(COLOR_WHITE)
-                if turn.player then
-                    frames[order].panel:SetDrawBackground(false)
-                end
+                SurfaceSetDrawColor(COLOR_WHITE)
             end
-            if turn.action == "pick" then
-                surface.SetMaterial(pickIcon)
-            else
-                surface.SetMaterial(banIcon)
-            end
-            surface.DrawTexturedRect(x, y - smallIconSize, smallIconSize, smallIconSize)
-            x = x + smallIconSize + (2 * smallIconMargin)
+
+            SurfaceSetMaterial(randomIcon)
+            SurfaceDrawTexturedRect(x, bottomPosY, smallIconSize, smallIconSize)
         end
 
-        if draftPhase >= 1 and draftPhase <= #bottomPositions.order then
-            local turn = bottomPositions.order[draftPhase]
-            x = centrePositions[turn.team].x
-            y = (ScrH() - largeIconSize) / 2
+        SurfaceSetDrawColor(GetRoleTeamColor(turn.team, "highlight"))
+        SurfaceSetMaterial(smallOutline)
+        SurfaceDrawTexturedRect(x - smallIconOutline, bottomPosY - smallIconOutline, smallIconSize + (2 * smallIconOutline), smallIconSize + (2 * smallIconOutline))
 
-            local cursorX, cursorY = -1, -1
-            if player.GetBySteamID64(turn.player) == LocalPlayer() then
-                if not vgui.CursorVisible() then
-                    gui.EnableScreenClicker(true)
-                end
+        if order < draftPhase then
+            SurfaceSetDrawColor(255, 255, 255, 32)
+            if turn.player then
+                frames[order].panel:SetBackgroundColor(colours.bottomIconLight)
+                frames[order].panel:SetPaintBackground(true)
+            end
+        elseif order > draftPhase then
+            SurfaceSetDrawColor(255, 255, 255, 127)
+            if turn.player then
+                frames[order].panel:SetBackgroundColor(colours.bottomIconDark)
+                frames[order].panel:SetPaintBackground(true)
+            end
+        else
+            SurfaceSetDrawColor(COLOR_WHITE)
+            if turn.player then
+                frames[order].panel:SetPaintBackground(false)
+            end
+        end
 
-                cursorX, cursorY = input.GetCursorPos()
-            elseif turn.player == nil then
-                if CurTime() - lastRandomSelect > 0.5 then
-                    lastRandomSelect = CurTime()
-                    lastRandomIndex = math.random(1, #availableRoles[turn.team])
-                    while table.HasValue(pickedRoles[turn.team], availableRoles[turn.team][lastRandomIndex]) or table.HasValue(bannedRoles[turn.team], availableRoles[turn.team][lastRandomIndex]) do
-                        lastRandomIndex = lastRandomIndex + 1
-                        if lastRandomIndex > #availableRoles[turn.team] then
-                            lastRandomIndex = 1
-                        end
-                    end
-                    selectedRole = availableRoles[turn.team][lastRandomIndex]
-                end
+        if turn.action == "pick" then
+            SurfaceSetMaterial(pickIcon)
+        else
+            SurfaceSetMaterial(banIcon)
+        end
+
+        SurfaceDrawTexturedRect(x, bottomPosY - smallIconSize, smallIconSize, smallIconSize)
+        x = x + smallIconSize + (2 * smallIconMargin)
+    end
+end
+
+local function DrawMiddleChoices()
+    if draftPhase >= 1 and draftPhase <= #bottomPositions.order then
+        local turn = bottomPositions.order[draftPhase]
+        local teamPos = centrePositions[turn.team]
+        local rowAmount = teamPos.rowAmount
+
+        local cursorX, cursorY = -1, -1
+        if PlayerGetBySteamID64(turn.player) == LocalPlayer() then
+            if not VGUICursorVisible() then
+                GUIEnableScreenClicker(true)
+                mouseAutoEnabled = true
             end
 
-            for _, role in ipairs(availableRoles[turn.team]) do
-                local hover = false
-                local selected = selectedRole == role
-                if cursorX >= x and cursorX <= x + largeIconSize and cursorY >= y and cursorY <= y + largeIconSize then
-                    if not table.HasValue(pickedRoles[turn.team], role) and not table.HasValue(bannedRoles[turn.team], role) then
-                        hover = true
-                        if input.IsMouseDown(MOUSE_LEFT) then
-                            if not mouseDown then
-                                net.Start("TTT_SelectRolePackDraft")
-                                net.WriteInt(role, util.RoleBits())
-                                net.WriteUInt(draftPhase, 8)
-                                net.SendToServer()
-                            end
-                            mouseDown = true
-                        else
-                            mouseDown = false
-                        end
+            cursorX, cursorY = InputGetCursorPos()
+        elseif turn.player == nil then
+            if CurTime() - lastRandomSelect > 0.5 then
+                lastRandomSelect = CurTime()
+                lastRandomIndex = MathRandom(1, #availableRoles[turn.team])
+                while TableHasValue(pickedRoles[turn.team], availableRoles[turn.team][lastRandomIndex]) or TableHasValue(bannedRoles[turn.team], availableRoles[turn.team][lastRandomIndex]) do
+                    lastRandomIndex = lastRandomIndex + 1
+                    if lastRandomIndex > #availableRoles[turn.team] then
+                        lastRandomIndex = 1
                     end
                 end
+                selectedRole = availableRoles[turn.team][lastRandomIndex]
+            end
+        end
 
-                if selected then
-                    surface.SetDrawColor(GetRoleTeamColor(turn.team, "highlight"))
-                    surface.SetMaterial(largeGlow)
-                    surface.DrawTexturedRect(x - largeIconGlow, y - largeIconGlow, largeIconSize + (2 * largeIconGlow), largeIconSize + (2 * largeIconGlow))
-                elseif hover then
-                    surface.SetDrawColor(ColorAlpha(GetRoleTeamColor(turn.team, "highlight"), 128))
-                    surface.SetMaterial(largeGlow)
-                    surface.DrawTexturedRect(x - largeIconGlow, y - largeIconGlow, largeIconSize + (2 * largeIconGlow), largeIconSize + (2 * largeIconGlow))
-                end
+        for i, role in ipairs(availableRoles[turn.team]) do
+            local row = MathCeil(i / middleMaxIcons)
+            local rowY = selectionRowY - (rowAmount - row) * (largeIconSize + largeIconMargin)
 
-                draw.NoTexture()
-                surface.SetDrawColor(COLOR_BLACK)
-                surface.DrawRect(x, y, largeIconSize, largeIconSize)
-                if table.HasValue(pickedRoles[turn.team], role) or table.HasValue(bannedRoles[turn.team], role) then
-                    surface.SetDrawColor(255, 255, 255, 32)
-                    draw.SimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), y + largeIconSize + (0.25 * largeIconMargin), Color(255, 255, 255, 32), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
-                elseif selected or hover then
-                    if turn.action == "ban" then
-                        surface.SetDrawColor(255, 255, 255, 32)
+            local startX = teamPos.fullX
+            if row == rowAmount and teamPos.remainderX then
+                startX = teamPos.remainderX
+            end
+
+            local columnIndex = (i - 1) % middleMaxIcons
+            local x = startX + columnIndex * (largeIconSize + largeIconMargin)
+
+            local hover = false
+            local selected = selectedRole == role
+            if cursorX >= x and cursorX <= x + largeIconSize and cursorY >= rowY and cursorY <= rowY + largeIconSize then
+                if not TableHasValue(pickedRoles[turn.team], role) and not TableHasValue(bannedRoles[turn.team], role) then
+                    hover = true
+
+                    if InputIsMouseDown(MOUSE_LEFT) then
+                        if not mouseDown then
+                            net.Start("TTT_SelectRolePackDraft")
+                            net.WriteInt(role, util.RoleBits())
+                            net.WriteUInt(draftPhase, 8)
+                            net.SendToServer()
+                        end
+                        mouseDown = true
                     else
-                        surface.SetDrawColor(COLOR_WHITE)
+                        mouseDown = false
                     end
-                    draw.SimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), y + largeIconSize + (0.25 * largeIconMargin), COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
-                else
-                    surface.SetDrawColor(255, 255, 255, 191)
-                    draw.SimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), y + largeIconSize + (0.25 * largeIconMargin), Color(255, 255, 255, 191), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
                 end
-                surface.SetMaterial(ROLE_SPRITE_ICON_MATERIALS[ROLE_STRINGS_SHORT[role]])
-                surface.DrawTexturedRect(x, y, largeIconSize, largeIconSize)
+            end
 
+            if selected then
+                SurfaceSetDrawColor(GetRoleTeamColor(turn.team, "highlight"))
+                SurfaceSetMaterial(largeGlow)
+                SurfaceDrawTexturedRect(x - largeIconGlow, rowY - largeIconGlow, largeIconSize + (2 * largeIconGlow), largeIconSize + (2 * largeIconGlow))
+            elseif hover then
+                SurfaceSetDrawColor(ColorAlpha(GetRoleTeamColor(turn.team, "highlight"), 128))
+                SurfaceSetMaterial(largeGlow)
+                SurfaceDrawTexturedRect(x - largeIconGlow, rowY - largeIconGlow, largeIconSize + (2 * largeIconGlow), largeIconSize + (2 * largeIconGlow))
+            end
+
+            DrawNoTexture()
+            SurfaceSetDrawColor(COLOR_BLACK)
+            SurfaceDrawRect(x, rowY, largeIconSize, largeIconSize)
+
+            if TableHasValue(pickedRoles[turn.team], role) or TableHasValue(bannedRoles[turn.team], role) then
+                SurfaceSetDrawColor(255, 255, 255, 32)
+                DrawSimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), rowY + largeIconSize + (0.25 * largeIconMargin), colours.choiceNameDark, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            elseif selected or hover then
                 if turn.action == "ban" then
-                    if selected then
-                        surface.SetDrawColor(COLOR_WHITE)
-                        surface.SetMaterial(largeBan)
-                        surface.DrawTexturedRect(x, y, largeIconSize, largeIconSize)
-                    elseif hover then
-                        surface.SetDrawColor(255, 255, 255, 191)
-                        surface.SetMaterial(largeBan)
-                        surface.DrawTexturedRect(x, y, largeIconSize, largeIconSize)
-                    end
+                    SurfaceSetDrawColor(255, 255, 255, 32)
+                else
+                    SurfaceSetDrawColor(COLOR_WHITE)
+                end
+                DrawSimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), rowY + largeIconSize + (0.25 * largeIconMargin), COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            else
+                SurfaceSetDrawColor(255, 255, 255, 191)
+                DrawSimpleText(ROLE_STRINGS[role], "DraftName", x + (0.5 * largeIconSize), rowY + largeIconSize + (0.25 * largeIconMargin), colours.choiceNameLight, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            end
+
+            SurfaceSetMaterial(ROLE_SPRITE_ICON_MATERIALS[ROLE_STRINGS_SHORT[role]])
+            SurfaceDrawTexturedRect(x, rowY, largeIconSize, largeIconSize)
+
+            if turn.action == "ban" then
+                if selected then
+                    SurfaceSetDrawColor(COLOR_WHITE)
+                    SurfaceSetMaterial(largeBan)
+                    SurfaceDrawTexturedRect(x, rowY, largeIconSize, largeIconSize)
+                elseif hover then
+                    SurfaceSetDrawColor(255, 255, 255, 191)
+                    SurfaceSetMaterial(largeBan)
+                    SurfaceDrawTexturedRect(x, rowY, largeIconSize, largeIconSize)
+                end
+            end
+
+            SurfaceSetDrawColor(GetRoleTeamColor(turn.team, "highlight"))
+            SurfaceSetMaterial(largeOutline)
+            SurfaceDrawTexturedRect(x - largeIconOutline, rowY - largeIconOutline, largeIconSize + (2 * largeIconOutline), largeIconSize + (2 * largeIconOutline))
+        end
+
+        local cursorHoverX, cursorHoverY = InputGetCursorPos()
+        for i, role in ipairs(availableRoles[turn.team]) do
+            local row = MathCeil(i / middleMaxIcons)
+            local rowY = selectionRowY - (rowAmount - row) * (largeIconSize + largeIconMargin)
+
+            local startX = teamPos.fullX
+            if row == rowAmount and teamPos.remainderX then
+                startX = teamPos.remainderX
+            end
+
+            local columnIndex = (i - 1) % middleMaxIcons
+            local x = startX + columnIndex * (largeIconSize + largeIconMargin)
+
+            local hoverDescription = false
+
+            if cursorHoverX >= x and cursorHoverX <= x + largeIconSize and cursorHoverY >= rowY and cursorHoverY <= rowY + largeIconSize then
+                hoverDescription = true
+            end
+
+            -- Draw role description if hovered
+            if hoverDescription then
+                local descText = "This role doesn't have a description :("
+                if LANG and LANG.GetRawTranslation then
+                    descText = LANG.GetRawTranslation("cheatsheet_desc_" .. ROLE_STRINGS_RAW[role]) or descText
                 end
 
-                surface.SetDrawColor(GetRoleTeamColor(turn.team, "highlight"))
-                surface.SetMaterial(largeOutline)
-                surface.DrawTexturedRect(x - largeIconOutline, y - largeIconOutline, largeIconSize + (2 * largeIconOutline), largeIconSize + (2 * largeIconOutline))
-                x = x + largeIconSize + largeIconMargin
+                DrawSimpleText(
+                    descText,
+                    "DraftDescription",
+                    scrW / 2,
+                    centreDivY - 32,
+                    colours.roleDescription,
+                    TEXT_ALIGN_CENTER,
+                    TEXT_ALIGN_CENTER
+                )
+            end
+        end
+    end
+end
+
+local function DrawNextPreviews()
+    local targetTurn = nil
+
+    if showNext > 0 and draftPhase < #bottomPositions.order then
+        local turnsUntilPick = 0
+
+        if showNext == 1 then
+            -- Show previews if player is up next
+            local nextTurn = bottomPositions.order[draftPhase + 1]
+            local nextPly = PlayerGetBySteamID64(nextTurn.player)
+
+            if nextPly == LocalPlayer() then
+                targetTurn = nextTurn
+                turnsUntilPick = 1
+            end
+        elseif showNext == 2 then
+            -- Find player's next choice
+            for i = draftPhase + 1, #bottomPositions.order do
+                local turn = bottomPositions.order[i]
+                if turn.player and PlayerGetBySteamID64(turn.player) == LocalPlayer() then
+                    targetTurn = turn
+                    turnsUntilPick = i - draftPhase
+                    break
+                end
             end
         end
 
-        x = ScrW() / 2
-        if draftPhase == 0 then
-            draw.SimpleText("ROLE PACK DRAFT STARTING SOON", "DraftLarge", x, ScrH() / 2, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+        if targetTurn then
+            local teamPos = centrePositions[targetTurn.team]
+            local rowAmount = teamPos.rowAmount
 
-            local nextTurn = bottomPositions.order[1]
-            local nextPly = player.GetBySteamID64(nextTurn.player)
+            local previewSize   = 48
+            local previewMargin = 40
+            local newRowOffset  = previewSize + 32
 
-            local action = {}
+            -- Get cursor location for hover detection
+            local cursorX, cursorY = InputGetCursorPos()
+            local iconOffsetY = 0
+
+            -- Draw "IN x TURNS" text
+            if showNext > 0 then -- and turnsUntilPick > 1 then
+                local actionText  = targetTurn.action == "pick" and "PICKING" or "BANNING"
+                local actionColor = targetTurn.action == "pick" and GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight") or GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
+                local teamColour  = GetRoleTeamColor(targetTurn.team, "highlight")
+
+                turnsUntilPick = draftPhase > 0 and turnsUntilPick or turnsUntilPick - 1
+
+                local message = {}
+                local turnText = turnsUntilPick == 1 and "turn: " or "turns: "
+                if turnsUntilPick == 0 then
+                    TableInsert(message, {["text"] = "Your next turn preview: up first, ", ["color"] = COLOR_WHITE})
+                else
+                    TableInsert(message, {["text"] = StringFormat("Your next turn preview: in %d " .. turnText, turnsUntilPick), ["color"] = COLOR_WHITE})
+                end
+                TableInsert(message, {["text"] = "you are ", ["color"] = COLOR_WHITE})
+                TableInsert(message, {["text"] = actionText, ["color"] = actionColor})
+                TableInsert(message, {["text"] = " " .. teamArticle[targetTurn.team], ["color"] = COLOR_WHITE})
+                TableInsert(message, {["text"] = " " .. teamNames[targetTurn.team], ["color"] = teamColour})
+
+                for _, text in ipairs(message) do
+                    text.color = ColorAlpha(text.color, 220)
+                end
+
+                if showNext == 2 then
+                    DrawColoredText(message, "DraftSmaller", scrW / 2, previewY - previewSize / 2 - smallIconOutline - divBufferLarge / 2 - 2, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+                else
+                    DrawSimpleText("Your next turn preview:", "DraftSmaller", scrW / 2, previewY - previewSize / 2 - smallIconOutline - divBufferLarge / 2 - 2, Color(255, 255, 255, 220), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+                end
+            end
+
+            local hoveredRole = nil
+
+            -- Draw preview icons
+            for i, role in ipairs(availableRoles[targetTurn.team]) do
+                local row = MathCeil(i / middleMaxIcons)
+                local rowOffsetY = (row - 1) * newRowOffset
+
+                local rowCount = (row == rowAmount and teamPos.remainder > 0) and teamPos.remainder or middleMaxIcons
+                local rowWidth = rowCount * (previewSize + previewMargin) - previewMargin
+                local nextX = (scrW - rowWidth) / 2
+
+                local column = (i - 1) % middleMaxIcons
+                nextX = nextX + column * (previewSize + previewMargin)
+
+                local iconY = previewY - previewSize / 2 - iconOffsetY + rowOffsetY
+                local isHovered = (cursorX >= nextX and cursorX <= nextX + previewSize and cursorY >= iconY and cursorY <= iconY + previewSize)
+
+                if isHovered then
+                    hoveredRole = role
+                end
+
+                -- Draw glow if hovered
+                if isHovered then
+                    SurfaceSetDrawColor(ColorAlpha(GetRoleTeamColor(targetTurn.team, "highlight"), 180))
+                    SurfaceSetMaterial(smallGlow)
+                    SurfaceDrawTexturedRect(nextX - smallIconGlow, iconY - smallIconGlow, previewSize + (2 * smallIconGlow), previewSize + (2 * smallIconGlow))
+                end
+
+                DrawNoTexture()
+                SurfaceSetDrawColor(0, 0, 0, 150)
+                SurfaceDrawRect(nextX, iconY, previewSize, previewSize)
+
+                local isPickedOrBanned = TableHasValue(pickedRoles[targetTurn.team], role) or TableHasValue(bannedRoles[targetTurn.team], role)
+
+                if isPickedOrBanned then
+                    SurfaceSetDrawColor(255, 255, 255, 30)
+                elseif isHovered then
+                    SurfaceSetDrawColor(255, 255, 255, 255)
+                else
+                    SurfaceSetDrawColor(255, 255, 255, 160)
+                end
+
+                -- Role icon
+                local iconMat = ROLE_SPRITE_ICON_MATERIALS[ROLE_STRINGS_SHORT[role]]
+                if iconMat then
+                    SurfaceSetMaterial(iconMat)
+                    SurfaceDrawTexturedRect(nextX, iconY, previewSize, previewSize)
+                end
+
+                -- Role name
+                local nameColor = isPickedOrBanned and colours.choiceNameDark or (isHovered and COLOR_WHITE or colours.previewNameLight)
+                DrawSimpleText(
+                    ROLE_STRINGS[role],
+                    "DraftName",
+                    nextX + (0.5 * previewSize),
+                    iconY + previewSize + 4,
+                    nameColor,
+                    TEXT_ALIGN_CENTER,
+                    TEXT_ALIGN_TOP
+                )
+
+                -- Outline
+                SurfaceSetDrawColor(ColorAlpha(GetRoleTeamColor(targetTurn.team, "highlight"), isHovered and 255 or 150))
+                SurfaceSetMaterial(smallOutline)
+                SurfaceDrawTexturedRect(nextX - smallIconOutline, iconY - smallIconOutline, previewSize + (2 * smallIconOutline), previewSize + (2 * smallIconOutline))
+            end
+
+            -- Draw role description if hovered
+            if hoveredRole then
+                local descText = "This role doesn't have a description :("
+                if LANG and LANG.GetRawTranslation then
+                    descText = LANG.GetRawTranslation("cheatsheet_desc_" .. ROLE_STRINGS_RAW[hoveredRole]) or descText
+                end
+
+                local totalRowOffset = (rowAmount - 1) * newRowOffset
+                DrawSimpleText(
+                    descText,
+                    "DraftDescription",
+                    scrW / 2,
+                    previewY + previewSize + smallIconMargin - iconOffsetY + totalRowOffset - 6,
+                    colours.roleDescription,
+                    TEXT_ALIGN_CENTER,
+                    TEXT_ALIGN_TOP
+                )
+            end
+        end
+    end
+end
+
+local function DrawStatusMessages()
+    local x = scrW / 2
+    if draftPhase == 0 then
+        DrawSimpleText("ROLE PACK DRAFT STARTING SOON", "DraftLarge", x, scrH / 2, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+
+        local nextTurn = bottomPositions.order[1]
+        local nextPly = PlayerGetBySteamID64(nextTurn.player)
+
+        local action = {}
+        if nextTurn.action == "pick" then
+            action.text = "PICKING"
+            action.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
+        else
+            action.text = "BANNING"
+            action.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
+        end
+
+        local message = {}
+        TableInsert(message, {["text"] = "UP FIRST: ", ["color"] = COLOR_WHITE})
+        if nextPly == LocalPlayer() then
+            TableInsert(message, {["text"] = "YOU ARE ", ["color"] = COLOR_WHITE})
+        elseif nextTurn.player == nil then
+            TableInsert(message, {["text"] = "RANDOMLY ", ["color"] = COLOR_WHITE})
+        else
+            TableInsert(message, {["text"] = StringUpper(nextPly:Nick()) .. " IS ", ["color"] = COLOR_WHITE})
+        end
+        TableInsert(message, action)
+        TableInsert(message, {["text"] = " " .. teamArticle[nextTurn.team], ["color"] = COLOR_WHITE})
+        TableInsert(message, {["text"] = " " .. teamNames[nextTurn.team], ["color"] = GetRoleTeamColor(nextTurn.team, "highlight")})
+        for _, text in ipairs(message) do
+            text.color = ColorAlpha(text.color, 220)
+        end
+        DrawColoredText(message, "DraftRegular", x, (scrH / 2) + largeIconSize, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+    elseif draftPhase > #bottomPositions.order then
+        DrawSimpleText("ROLE PACK DRAFT FINISHED", "DraftLarge", x, scrH / 2, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+        DrawSimpleText("A NEW ROUND WILL BEGIN SOON", "DraftRegular", x, (scrH / 2) + largeIconSize, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+    else
+        local turn = bottomPositions.order[draftPhase]
+        local ply = PlayerGetBySteamID64(turn.player)
+
+        local action = {}
+        if turn.action == "pick" then
+            action.text = "PICKING"
+            action.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
+        else
+            action.text = "BANNING"
+            action.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
+        end
+
+        local actionShort = {}
+        if turn.action == "pick" then
+            actionShort.text = "PICK"
+            actionShort.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
+        else
+            actionShort.text = "BAN"
+            actionShort.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
+        end
+
+        local message = {}
+        if ply == LocalPlayer() then
+            TableInsert(message, {["text"] = "YOUR TURN TO ", ["color"] = COLOR_WHITE})
+            TableInsert(message, actionShort)
+        elseif turn.player == nil then
+            TableInsert(message, {["text"] = "RANDOMLY ", ["color"] = COLOR_WHITE})
+            TableInsert(message, action)
+        else
+            TableInsert(message, {["text"] = StringUpper(ply:Nick()) .. " IS ", ["color"] = COLOR_WHITE})
+            TableInsert(message, action)
+        end
+
+        TableInsert(message, {["text"] = " " .. teamArticle[turn.team], ["color"] = COLOR_WHITE})
+        TableInsert(message, {["text"] = " " .. teamNames[turn.team], ["color"] = GetRoleTeamColor(turn.team, "highlight")})
+
+        local messageRows = MathMax(centrePositions[turn.team].rowAmount, 1)
+        DrawColoredText(message, "DraftLarge", x, selectionRowY - (0.5 * largeIconMargin) - ((messageRows - 1) * (largeIconSize + largeIconMargin)), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
+
+        DrawNoTexture()
+        SurfaceSetDrawColor(COLOR_WHITE)
+        SurfaceDrawRect(centrePositions[turn.team].fullX - smallIconSize, centreDivY, scrW + (2 * smallIconSize) - (2 * centrePositions[turn.team].fullX), groupDividerWidth / 2)
+        -- resultTextY = centreDivY + (2 * smallIconMargin)
+
+        if draftPhase > 1 then
+            local lastTurn = bottomPositions.order[draftPhase - 1]
+            local lastPly = PlayerGetBySteamID64(lastTurn.player)
+
+            action = {}
+            if lastTurn.action == "pick" then
+                action.text = "PICKED"
+                action.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
+            else
+                action.text = "BANNED"
+                action.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
+            end
+
+            message = {}
+            if lastPly == LocalPlayer() then
+                TableInsert(message, {["text"] = "YOU ", ["color"] = COLOR_WHITE})
+                if randomSelection then
+                    TableInsert(message, {["text"] = "RAN OUT OF TIME AND RANDOMLY ", ["color"] = COLOR_WHITE})
+                end
+            elseif lastTurn.player == nil then
+                TableInsert(message, {["text"] = "RANDOMLY ", ["color"] = COLOR_WHITE})
+            else
+                if randomSelection then
+                    TableInsert(message, {["text"] = StringUpper(lastPly:Nick()) .. " RAN OUT OF TIME AND RANDOMLY ", ["color"] = COLOR_WHITE})
+                else
+                    TableInsert(message, {["text"] = StringUpper(lastPly:Nick()) .. " ", ["color"] = COLOR_WHITE})
+                end
+            end
+
+            TableInsert(message, action)
+            TableInsert(message, {["text"] = " " .. StringUpper(ROLE_STRINGS[previousSelection]), ["color"] = GetRoleTeamColor(lastTurn.team, "highlight")})
+
+            for _, text in ipairs(message) do
+                text.color = ColorAlpha(text.color, 220)
+            end
+
+            DrawColoredText(message, "DraftSmall", x, resultTextY, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+
+            -- resultTextY = resultTextY + (0.65 * largeIconSize)
+        end
+
+        if draftPhase < #bottomPositions.order then
+            local nextTurn = bottomPositions.order[draftPhase + 1]
+            local nextPly = PlayerGetBySteamID64(nextTurn.player)
+
+            action = {}
             if nextTurn.action == "pick" then
                 action.text = "PICKING"
                 action.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
@@ -725,146 +1188,85 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                 action.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
             end
 
-            local message = {}
-            table.insert(message, {["text"] = "UP FIRST: ", ["color"] = COLOR_WHITE})
+            message = {}
+            TableInsert(message, {["text"] = "UP NEXT: ", ["color"] = COLOR_WHITE})
+
             if nextPly == LocalPlayer() then
-                table.insert(message, {["text"] = "YOU ARE ", ["color"] = COLOR_WHITE})
+                TableInsert(message, {["text"] = "YOU ARE ", ["color"] = COLOR_WHITE})
             elseif nextTurn.player == nil then
-                table.insert(message, {["text"] = "RANDOMLY ", ["color"] = COLOR_WHITE})
+                TableInsert(message, {["text"] = "RANDOMLY ", ["color"] = COLOR_WHITE})
             else
-                table.insert(message, {["text"] = string.upper(nextPly:Nick()) .. " IS ", ["color"] = COLOR_WHITE})
+                TableInsert(message, {["text"] = StringUpper(nextPly:Nick()) .. " IS ", ["color"] = COLOR_WHITE})
             end
-            table.insert(message, action)
-            table.insert(message, {["text"] = " " .. teamArticle[nextTurn.team], ["color"] = COLOR_WHITE})
-            table.insert(message, {["text"] = " " .. teamNames[nextTurn.team], ["color"] = GetRoleTeamColor(nextTurn.team, "highlight")})
+
+            TableInsert(message, action)
+            TableInsert(message, {["text"] = " " .. teamArticle[nextTurn.team], ["color"] = COLOR_WHITE})
+            TableInsert(message, {["text"] = " " .. teamNames[nextTurn.team], ["color"] = GetRoleTeamColor(nextTurn.team, "highlight")})
+
             for _, text in ipairs(message) do
                 text.color = ColorAlpha(text.color, 220)
             end
-            DrawColoredText(message, "DraftRegular", x, (ScrH() / 2) + largeIconSize, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-        elseif draftPhase > #bottomPositions.order then
-            draw.SimpleText("ROLE PACK DRAFT FINISHED", "DraftLarge", x, ScrH() / 2, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-            draw.SimpleText("A NEW ROUND WILL BEGIN SOON", "DraftRegular", x, (ScrH() / 2) + largeIconSize, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-        else
-            local turn = bottomPositions.order[draftPhase]
-            local ply = player.GetBySteamID64(turn.player)
 
-            local action = {}
-            if turn.action == "pick" then
-                action.text = "PICKING"
-                action.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
-            else
-                action.text = "BANNING"
-                action.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
-            end
+            upNextTextY = draftPhase > 1 and resultTextY + 38 or resultTextY
 
-            local actionShort = {}
-            if turn.action == "pick" then
-                actionShort.text = "PICK"
-                actionShort.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
-            else
-                actionShort.text = "BAN"
-                actionShort.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
-            end
-
-            local message = {}
-            if ply == LocalPlayer() then
-                table.insert(message, {["text"] = "YOUR TURN TO ", ["color"] = COLOR_WHITE})
-                table.insert(message, actionShort)
-            elseif turn.player == nil then
-                table.insert(message, {["text"] = "RANDOMLY ", ["color"] = COLOR_WHITE})
-                table.insert(message, action)
-            else
-                table.insert(message, {["text"] = string.upper(ply:Nick()) .. " IS ", ["color"] = COLOR_WHITE})
-                table.insert(message, action)
-            end
-            table.insert(message, {["text"] = " " .. teamArticle[turn.team], ["color"] = COLOR_WHITE})
-            table.insert(message, {["text"] = " " .. teamNames[turn.team], ["color"] = GetRoleTeamColor(turn.team, "highlight")})
-            DrawColoredText(message, "DraftLarge", x, (ScrH() - largeIconSize) / 2 - (0.5 * largeIconMargin), TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
-
-            y = (ScrH() + largeIconSize) / 2 + largeIconMargin + smallIconMargin
-            draw.NoTexture()
-            surface.SetDrawColor(COLOR_WHITE)
-            surface.DrawRect(centrePositions[turn.team].x - smallIconSize, y, ScrW() + (2 * smallIconSize) - (2 * centrePositions[turn.team].x), groupDividerWidth / 2)
-            y = y + (2 * smallIconMargin)
-
-            if draftPhase > 1 then
-                local lastTurn = bottomPositions.order[draftPhase - 1]
-                local lastPly = player.GetBySteamID64(lastTurn.player)
-
-                action = {}
-                if lastTurn.action == "pick" then
-                    action.text = "PICKED"
-                    action.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
-                else
-                    action.text = "BANNED"
-                    action.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
-                end
-
-                message = {}
-                if lastPly == LocalPlayer() then
-                    table.insert(message, {["text"] = "YOU ", ["color"] = COLOR_WHITE})
-                    if randomSelection then
-                        table.insert(message, {["text"] = "RAN OUT OF TIME AND RANDOMLY ", ["color"] = COLOR_WHITE})
-                    end
-                elseif lastTurn.player == nil then
-                    table.insert(message, {["text"] = "RANDOMLY ", ["color"] = COLOR_WHITE})
-                else
-                    if randomSelection then
-                        table.insert(message, {["text"] = string.upper(lastPly:Nick()) .. " RAN OUT OF TIME AND RANDOMLY ", ["color"] = COLOR_WHITE})
-                    else
-                        table.insert(message, {["text"] = string.upper(lastPly:Nick()) .. " ", ["color"] = COLOR_WHITE})
-                    end
-                end
-                table.insert(message, action)
-                table.insert(message, {["text"] = " " .. string.upper(ROLE_STRINGS[previousSelection]), ["color"] = GetRoleTeamColor(lastTurn.team, "highlight")})
-                for _, text in ipairs(message) do
-                    text.color = ColorAlpha(text.color, 220)
-                end
-                DrawColoredText(message, "DraftSmall", x, y, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
-
-                y = y + (0.65 * largeIconSize)
-            end
-
-            if draftPhase < #bottomPositions.order then
-                local nextTurn = bottomPositions.order[draftPhase + 1]
-                local nextPly = player.GetBySteamID64(nextTurn.player)
-
-                action = {}
-                if nextTurn.action == "pick" then
-                    action.text = "PICKING"
-                    action.color = GetRoleTeamColor(ROLE_TEAM_DETECTIVE, "highlight")
-                else
-                    action.text = "BANNING"
-                    action.color = GetRoleTeamColor(ROLE_TEAM_TRAITOR, "highlight")
-                end
-
-                message = {}
-                table.insert(message, {["text"] = "UP NEXT: ", ["color"] = COLOR_WHITE})
-                if nextPly == LocalPlayer() then
-                    table.insert(message, {["text"] = "YOU ARE ", ["color"] = COLOR_WHITE})
-                elseif nextTurn.player == nil then
-                    table.insert(message, {["text"] = "RANDOMLY ", ["color"] = COLOR_WHITE})
-                else
-                    table.insert(message, {["text"] = string.upper(nextPly:Nick()) .. " IS ", ["color"] = COLOR_WHITE})
-                end
-                table.insert(message, action)
-                table.insert(message, {["text"] = " " .. teamArticle[nextTurn.team], ["color"] = COLOR_WHITE})
-                table.insert(message, {["text"] = " " .. teamNames[nextTurn.team], ["color"] = GetRoleTeamColor(nextTurn.team, "highlight")})
-                for _, text in ipairs(message) do
-                    text.color = ColorAlpha(text.color, 220)
-                end
-                DrawColoredText(message, "DraftSmall", x, y, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
-            end
+            DrawColoredText(message, "DraftSmall", x, upNextTextY, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
         end
 
-        if draftPhase < #bottomPositions.order then
-            local nextTurn = bottomPositions.order[draftPhase + 1]
-            local nextPly = player.GetBySteamID64(nextTurn.player)
-            if nextPly == LocalPlayer() then
-                x = ScrW() / 2
-                y = (3 * smallIconSize) + (4 * smallIconMargin)
-                draw.SimpleText("YOU ARE UP NEXT", "DraftSmall", x, y, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
-            end
+        -- Draw dividing line above preview row
+        SurfaceDrawRect(centrePositions[turn.team].fullX, upNextTextY + 38 + divBufferSmall, scrW - (2 * centrePositions[turn.team].fullX), groupDividerWidth / 2)
+    end
+
+    if draftPhase < #bottomPositions.order then
+        local nextTurn = bottomPositions.order[draftPhase + 1]
+        local nextPly = PlayerGetBySteamID64(nextTurn.player)
+
+        if nextPly == LocalPlayer() then
+            x = scrW / 2
+            DrawSimpleText("YOU ARE UP NEXT", "DraftSmall", x, upNextY, COLOR_WHITE, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
         end
+    end
+end
+
+hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
+    if draftPhase >= 0 then
+        DrawNoTexture()
+        SurfaceSetDrawColor(0, 0, 0, 220)
+        SurfaceDrawRect(0, 0, scrW, scrH)
+
+        DrawTopRow()
+        DrawTimerSection()
+        DrawBottomRow()
+        DrawMiddleChoices()
+        DrawNextPreviews()
+        DrawStatusMessages()
+    end
+end)
+
+-- Block scoreboard if player holds tab to hover preview icons and see role descriptions
+hook.Add("ScoreboardShow", "RoleDraft_BlockScoreboardShow", function()
+    if draftPhase >= 0 then
+        return true
+    end
+end)
+
+-- Enable cursor if player holds tab (need to do this manually as we're blocking the scoreboard)
+hook.Add("PlayerButtonDown", "RoleDraft_EnableMouseClicker", function(_, button)
+    if button ~= KEY_TAB then return end
+    if not holdingTab then holdingTab = true end
+    if draftPhase < 0 then return end
+
+    if not VGUICursorVisible() then
+        GUIEnableScreenClicker(true)
+    end
+end)
+
+-- Disable the cursor on tab release UNLESS it was auto-enabled because it's their turn to pick
+hook.Add("PlayerButtonUp", "RoleDraft_DisableMouseClicker", function(_, button)
+    if button ~= KEY_TAB then return end
+    if holdingTab then holdingTab = false end
+    if draftPhase < 0 or mouseAutoEnabled then return end
+
+    if VGUICursorVisible() then
+        GUIEnableScreenClicker(false)
     end
 end)
