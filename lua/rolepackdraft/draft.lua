@@ -16,10 +16,12 @@ local draft_detective_bans = GetConVar("ttt_draft_detective_bans")
 
 local draft_prep_time = GetConVar("ttt_draft_prep_time")
 local draft_turn_time = GetConVar("ttt_draft_turn_time")
+local draft_random_time = GetConVar("ttt_draft_random_time")
 local draft_end_time = GetConVar("ttt_draft_end_time")
 
 local draft_pick_ends_turn = CreateConVar("ttt_draft_pick_ends_turn", "0", FCVAR_NONE, "Whether selecting a role immediately ends the turn", 0, 1)
 local draft_persist_maps = CreateConVar("ttt_draft_persist_maps", "0", FCVAR_NONE, "Number of map switches to persist the drafted role pack", 0)
+local draft_allow_bots = CreateConVar("ttt_draft_allow_bots", "0", FCVAR_NONE, "Whether bots are allowed to be included in the draft (used for debugging)", 0, 1)
 
 util.AddNetworkString("TTT_BeginRolePackDraft")
 util.AddNetworkString("TTT_BeginRolePackDraft_Part")
@@ -43,10 +45,11 @@ local function RandomisePickBanOrder(iteration)
     local monsterBans = draft_monster_bans:GetInt()
     local detectivePicks = draft_detective_picks:GetInt()
     local detectiveBans = draft_detective_bans:GetInt()
+    local allowBots = draft_allow_bots:GetBool()
 
     local validPlayers = {}
     for _, ply in player.Iterator() do
-        if (not ply:IsSpec() or not ply:GetForceSpec()) and not ply:IsBot() then
+        if (not ply:IsSpec() or not ply:GetForceSpec()) and not (ply:IsBot() and not allowBots) then
             table.insert(validPlayers, ply)
         end
     end
@@ -585,7 +588,8 @@ local function NextRolePackDraft()
     draftPhase = draftPhase + 1
 
     if draftPhase >= 1 and draftPhase <= #order then
-        timer.Create("TTT_Draft_NextTurn", draft_turn_time:GetInt(), 0, NextRolePackDraft)
+        local isRandomTurn = order[draftPhase].player == nil
+        timer.Create("TTT_Draft_NextTurn", isRandomTurn and draft_random_time:GetInt() or draft_turn_time:GetInt(), 0, NextRolePackDraft)
     elseif draftPhase == #order + 1 then
         timer.Create("TTT_Draft_NextTurn", draft_end_time:GetInt(), 1, function() EndRolePackDraft() end)
 
@@ -668,7 +672,10 @@ function BeginRolePackDraft()
         net.Broadcast()
     end
 
-    local time = draft_prep_time:GetInt() + (draft_turn_time:GetInt() * #order) + draft_end_time:GetInt() + 1
+    draftPhase = 0
+    local isRandomTurn = order[draftPhase] and order[draftPhase].player == nil
+    local turnTime = isRandomTurn and draft_random_time:GetInt() or draft_turn_time:GetInt()
+    local time = draft_prep_time:GetInt() + (turnTime * #order) + draft_end_time:GetInt() + 1
     timer.Simple(0, function()
         SetRoundEnd(CurTime() + time)
         timer.Remove("prep2begin")
@@ -677,7 +684,6 @@ function BeginRolePackDraft()
         timer.Create("selectmute", time - 1, 1, function() MuteForRestart(true) end)
     end)
 
-    draftPhase = 0
     timer.Create("TTT_Draft_NextTurn", draft_prep_time:GetInt(), 0, NextRolePackDraft)
 end
 concommand.Add("ttt_draft_begin", BeginRolePackDraft, nil, "Starts a role pack draft", FCVAR_SERVER_CAN_EXECUTE)

@@ -15,6 +15,7 @@ local draft_detective_bans = GetConVar("ttt_draft_detective_bans")
 
 local draft_prep_time = GetConVar("ttt_draft_prep_time")
 local draft_turn_time = GetConVar("ttt_draft_turn_time")
+local draft_random_time = GetConVar("ttt_draft_random_time")
 local draft_end_time = GetConVar("ttt_draft_end_time")
 
 local draft_role_descriptions = GetConVar("ttt_draft_role_descriptions")
@@ -346,6 +347,8 @@ net.Receive("TTT_NextRolePackDraft", function()
     draftPhase = draftPhase + 1
     if draftPhase > #bottomPositions.order then
         nextPhaseTime = CurTime() + draft_end_time:GetInt()
+    elseif bottomPositions.order[draftPhase].player == nil then
+        nextPhaseTime = CurTime() + draft_random_time:GetInt()
     else
         nextPhaseTime = CurTime() + draft_turn_time:GetInt()
     end
