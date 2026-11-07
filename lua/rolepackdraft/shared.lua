@@ -13,7 +13,10 @@ CreateConVar("ttt_draft_detective_bans", "1", FCVAR_REPLICATED)
 
 CreateConVar("ttt_draft_prep_time", "10", FCVAR_REPLICATED)
 CreateConVar("ttt_draft_turn_time", "5", FCVAR_REPLICATED)
+CreateConVar("ttt_draft_random_time", "5", FCVAR_REPLICATED)
 CreateConVar("ttt_draft_end_time", "10", FCVAR_REPLICATED)
+
+CreateConVar("ttt_draft_role_descriptions", "0", FCVAR_REPLICATED, "Whether a short role description should appear when hovering over a role icon", 0, 1)
 
 ROLE_TEAM_INNOCENT = ROLE_TEAM_INNOCENT or 0
 ROLE_TEAM_TRAITOR = ROLE_TEAM_TRAITOR or 1

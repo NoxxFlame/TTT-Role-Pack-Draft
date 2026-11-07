@@ -11,6 +11,7 @@ AddServer("rolepackdraft/shared.lua")
 AddClient("rolepackdraft/shared.lua")
 AddServer("rolepackdraft/draft.lua")
 AddClient("rolepackdraft/cl_draft.lua")
+AddServer("rolepackdraft/auto_draft.lua")
 
 if SERVER then
     resource.AddSingleFile("materials/rolepackdraft/ban.png")

@@ -15,7 +15,10 @@ local draft_detective_bans = GetConVar("ttt_draft_detective_bans")
 
 local draft_prep_time = GetConVar("ttt_draft_prep_time")
 local draft_turn_time = GetConVar("ttt_draft_turn_time")
+local draft_random_time = GetConVar("ttt_draft_random_time")
 local draft_end_time = GetConVar("ttt_draft_end_time")
+
+local draft_role_descriptions = GetConVar("ttt_draft_role_descriptions")
 
 local smallIconSize = 32
 local smallIconMargin = 10
@@ -344,6 +347,8 @@ net.Receive("TTT_NextRolePackDraft", function()
     draftPhase = draftPhase + 1
     if draftPhase > #bottomPositions.order then
         nextPhaseTime = CurTime() + draft_end_time:GetInt()
+    elseif bottomPositions.order[draftPhase].player == nil then
+        nextPhaseTime = CurTime() + draft_random_time:GetInt()
     else
         nextPhaseTime = CurTime() + draft_turn_time:GetInt()
     end
@@ -668,6 +673,11 @@ hook.Add("HUDDrawScoreBoard", "TTTDraft_HUDDrawScoreBoard", function()
                     surface.SetDrawColor(ColorAlpha(GetRoleTeamColor(turn.team, "highlight"), 128))
                     surface.SetMaterial(largeGlow)
                     surface.DrawTexturedRect(x - largeIconGlow, y - largeIconGlow, largeIconSize + (2 * largeIconGlow), largeIconSize + (2 * largeIconGlow))
+
+                    -- Show the hovered-over role's short role description
+                    if draft_role_descriptions:GetBool() then
+                        draw.SimpleText(LANG.GetRawTranslation("cheatsheet_desc_" .. ROLE_STRINGS_RAW[role]) or "This role doesn't have a description :(", "DraftName", ScrW() / 2, y + largeIconSize + (0.25 * largeIconMargin) + 150, Color(255, 255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+                    end
                 end
 
                 draw.NoTexture()

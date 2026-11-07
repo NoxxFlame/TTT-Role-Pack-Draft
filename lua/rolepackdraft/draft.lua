@@ -16,7 +16,12 @@ local draft_detective_bans = GetConVar("ttt_draft_detective_bans")
 
 local draft_prep_time = GetConVar("ttt_draft_prep_time")
 local draft_turn_time = GetConVar("ttt_draft_turn_time")
+local draft_random_time = GetConVar("ttt_draft_random_time")
 local draft_end_time = GetConVar("ttt_draft_end_time")
+
+local draft_pick_ends_turn = CreateConVar("ttt_draft_pick_ends_turn", "0", FCVAR_NONE, "Whether selecting a role immediately ends the turn", 0, 1)
+local draft_persist_maps = CreateConVar("ttt_draft_persist_maps", "0", FCVAR_NONE, "Number of map switches to persist the drafted role pack", 0)
+local draft_allow_bots = CreateConVar("ttt_draft_allow_bots", "0", FCVAR_NONE, "Whether bots are allowed to be included in the draft (used for debugging)", 0, 1)
 
 util.AddNetworkString("TTT_BeginRolePackDraft")
 util.AddNetworkString("TTT_BeginRolePackDraft_Part")
@@ -40,10 +45,11 @@ local function RandomisePickBanOrder(iteration)
     local monsterBans = draft_monster_bans:GetInt()
     local detectivePicks = draft_detective_picks:GetInt()
     local detectiveBans = draft_detective_bans:GetInt()
+    local allowBots = draft_allow_bots:GetBool()
 
     local validPlayers = {}
     for _, ply in player.Iterator() do
-        if (not ply:IsSpec() or not ply:GetForceSpec()) and not ply:IsBot() then
+        if (not ply:IsSpec() or not ply:GetForceSpec()) and not (ply:IsBot() and not allowBots) then
             table.insert(validPlayers, ply)
         end
     end
@@ -404,34 +410,150 @@ local banned = {
     [ROLE_TEAM_DETECTIVE] = {}
 }
 
+-- Reading picked roles for slotsbyplayercount to update slots on the player count changing
+local pickedJson = file.Read("rolepackdraft/picked.json", "DATA")
+
+if pickedJson then
+    picked = util.JSONToTable(pickedJson)
+end
+
 function EndRolePackDraft()
     RunConsoleCommand("ttt_roundrestart")
 
     timer.Remove("TTT_Draft_NextTurn")
 
-    draftPhase = -1
-    selected = nil
-    order = {}
-    roles = {}
-    picked = {
-        [ROLE_TEAM_INNOCENT] = {},
-        [ROLE_TEAM_TRAITOR] = {},
-        [ROLE_TEAM_JESTER] = {},
-        [ROLE_TEAM_INDEPENDENT] = {},
-        [ROLE_TEAM_MONSTER] = {},
-        [ROLE_TEAM_DETECTIVE] = {}
-    }
-    banned = {
-        [ROLE_TEAM_INNOCENT] = {},
-        [ROLE_TEAM_TRAITOR] = {},
-        [ROLE_TEAM_JESTER] = {},
-        [ROLE_TEAM_INDEPENDENT] = {},
-        [ROLE_TEAM_MONSTER] = {},
-        [ROLE_TEAM_DETECTIVE] = {}
-    }
-
     net.Start("TTT_EndRolePackDraft")
     net.Broadcast()
+end
+
+local function UpdateAndSetDraftRolePack()
+    -- Don't write a pack if nothing has been drafted yet (e.g. no picked.json on a fresh install)
+    local anyPicked = false
+    for _, teamPicks in pairs(picked) do
+        if not table.IsEmpty(teamPicks) then
+            anyPicked = true
+            break
+        end
+    end
+    if not anyPicked then return end
+
+    local dataJson = file.Read("rolepackdraft.json", "DATA")
+
+    if not dataJson or #dataJson == 0 then
+        ErrorNoHalt("Role pack draft roles list read failed!\n")
+        return
+    end
+
+    local dataTable = util.JSONToTable(dataJson)
+
+    if not dataTable then
+        ErrorNoHalt("Role pack draft roles list table conversion failed!\n")
+        return
+    end
+
+    -- First see if there's a slots configuration for the current number of players, else use the default configuration
+    local slotList = dataTable.slotsbyplayercount and dataTable.slotsbyplayercount[player.GetCount()] or dataTable.slots
+    if not slotList then
+        ErrorNoHalt("Role pack draft roles list has no slots!\n")
+        return
+    end
+
+    -- Building slots list
+    -- Build a lua table and let util.TableToJSON serialise it, rather than concatenating JSON by hand
+    --[[ Example input:
+        "slots": [
+            {"groups": ["innocents"], "constants": []},
+            {"groups": ["innocents", "jesters"], "constants": []},
+            {"groups": ["traitors"], "constants": []},
+            {"groups": [], "constants": ["detective"]}
+        ],
+        Example output:
+        "slots": [
+            [{"weight": 1, "role": "innocent"}, {"weight": 1, "role": "deputy"}],
+            [{"weight": 1, "role": "innocent"}, {"weight": 1, "role": "jester"}],
+            [{"weight": 1, "role": "traitor"}, {"weight": 1, "role": "impersonator"}, {"weight": 1, "role": "assassin"}],
+            [{"weight": 1, "role": "detective"}]
+        ],
+    --]]
+    local groupToTeam = {
+        innocents = ROLE_TEAM_INNOCENT,
+        traitors = ROLE_TEAM_TRAITOR,
+        jesters = ROLE_TEAM_JESTER,
+        independents = ROLE_TEAM_INDEPENDENT,
+        monsters = ROLE_TEAM_MONSTER,
+        detectives = ROLE_TEAM_DETECTIVE
+    }
+    local slots = {}
+    for i, slot in ipairs(slotList) do
+        local entries = {}
+        for _, group in ipairs(slot.groups or {}) do
+            local team = groupToTeam[group]
+            if not team then
+                ErrorNoHalt("Role pack draft json config contains unknown role team: '" .. group .."' at slot " .. i .."! Skipping...\n")
+                continue
+            end
+            for _, role in ipairs(picked[team] or {}) do
+                local roleString = ROLE_STRINGS_RAW[role]
+                if roleString then
+                    table.insert(entries, {weight = 1, role = roleString})
+                end
+            end
+        end
+        for _, constant in ipairs(slot.constants or {}) do
+            table.insert(entries, {weight = 1, role = constant})
+        end
+
+        -- If a slot didn't specify any valid role teams nor constant roles, skip this slot
+        if table.IsEmpty(entries) then
+            ErrorNoHalt("Role pack draft json config contains invalid/empty slot at slot ".. i .."! Skipping...\n")
+        else
+            table.insert(slots, entries)
+        end
+    end
+
+    if table.IsEmpty(slots) then
+        ErrorNoHalt("Role pack draft json config produced no slots, aborting draft role pack creation\n")
+        return
+    end
+
+    local rolePackJson = util.TableToJSON({
+        slots = slots,
+        name = "draft",
+        config = {allowduplicates = (dataTable.config and dataTable.config.allowduplicates) and true or false}
+    })
+
+    if not rolePackJson or #rolePackJson == 0 then
+        ErrorNoHalt("Role pack draft roles.json conversion failed!\n")
+        return
+    end
+
+    local convars = {}
+    for role = ROLE_INNOCENT, ROLE_MAX do
+        if not DEFAULT_ROLES[role] and not ROLE_BLOCK_SPAWN_CONVARS[role] and ROLE_STRINGS_RAW[role] then
+            table.insert(convars, {invalid = false, cvar = "ttt_" .. ROLE_STRINGS_RAW[role] .. "_enabled", value = "0"})
+        end
+    end
+
+    local convarsJson = util.TableToJSON({name = "draft", convars = convars})
+    if not convarsJson or #convarsJson == 0  then
+        ErrorNoHalt("Role pack draft convars.json conversion failed!\n")
+        return
+    end
+
+    if not file.IsDir("rolepacks", "DATA") then
+        if file.Exists("rolepacks", "DATA") then
+            ErrorNoHalt("Item named 'rolepacks' already exists in garrysmod/data but it is not a directory\n")
+            return
+        end
+
+        file.CreateDir("rolepacks")
+    end
+    file.CreateDir("rolepacks/draft")
+    file.Write("rolepacks/draft/roles.json", rolePackJson)
+    file.CreateDir("rolepacks/draft/weapons")
+    file.Write("rolepacks/draft/convars.json", convarsJson)
+
+    GetConVar("ttt_role_pack"):SetString("draft")
 end
 
 local function NextRolePackDraft()
@@ -466,75 +588,51 @@ local function NextRolePackDraft()
     draftPhase = draftPhase + 1
 
     if draftPhase >= 1 and draftPhase <= #order then
-        timer.Create("TTT_Draft_NextTurn", draft_turn_time:GetInt(), 0, NextRolePackDraft)
+        local isRandomTurn = order[draftPhase].player == nil
+        timer.Create("TTT_Draft_NextTurn", isRandomTurn and draft_random_time:GetInt() or draft_turn_time:GetInt(), 0, NextRolePackDraft)
     elseif draftPhase == #order + 1 then
         timer.Create("TTT_Draft_NextTurn", draft_end_time:GetInt(), 1, function() EndRolePackDraft() end)
 
-        local dataJson = file.Read("rolepackdraft.json", "DATA")
-        if #dataJson == 0 then
-            ErrorNoHalt("Role pack draft roles list read failed!\n")
-            return
-        end
+        UpdateAndSetDraftRolePack()
 
-        local dataTable = util.JSONToTable(dataJson)
-        if dataTable == nil then
-            ErrorNoHalt("Role pack draft roles list table conversion failed!\n")
-            return
+        -- Saving picked roles for slotsbyplayercount to update slots on the player count changing
+        if not file.IsDir("rolepackdraft", "DATA") then
+            file.CreateDir("rolepackdraft")
         end
-
-        local rolePackJson = "{\"slots\":["
-        for _, slot in ipairs(dataTable.slots) do
-            rolePackJson = rolePackJson .. "["
-            for _, group in ipairs(slot.groups) do
-                local team = ROLE_TEAM_INNOCENT
-                if group == "traitors" then team = ROLE_TEAM_TRAITOR end
-                if group == "jesters" then team = ROLE_TEAM_JESTER end
-                if group == "independents" then team = ROLE_TEAM_INDEPENDENT end
-                if group == "monsters" then team = ROLE_TEAM_MONSTER end
-                if group == "detectives" then team = ROLE_TEAM_DETECTIVE end
-                for _, role in ipairs(picked[team]) do
-                    rolePackJson = rolePackJson .. "{\"weight\":1,\"role\":\"" .. ROLE_STRINGS_RAW[role] .. "\"},"
-                end
-            end
-            for _, constant in ipairs(slot.constants) do
-                rolePackJson = rolePackJson .. "{\"weight\":1,\"role\":\"" .. constant .. "\"},"
-            end
-            rolePackJson = string.sub(rolePackJson, 1, -2) .. "],"
-        end
-        rolePackJson = string.sub(rolePackJson, 1, -2) .. "],\"name\":\"draft\",\"config\":{\"allowduplicates\":"
-        if dataTable.config.allowduplicates then
-            rolePackJson = rolePackJson .. "true"
-        else
-            rolePackJson = rolePackJson .. "false"
-        end
-        rolePackJson = rolePackJson .. "}}"
-
-        local convarsJson = "{\"name\":\"draft\",\"convars\":["
-        for role = ROLE_INNOCENT, ROLE_MAX do
-            if not DEFAULT_ROLES[role] and not ROLE_BLOCK_SPAWN_CONVARS[role] then
-                convarsJson = convarsJson .. "{\"invalid\":false,\"cvar\":\"ttt_" .. ROLE_STRINGS_RAW[role] .. "_enabled\",\"value\":\"0\"},"
-            end
-        end
-        convarsJson = string.sub(convarsJson, 1, -2) .. "]}"
-
-        if not file.IsDir("rolepacks", "DATA") then
-            if file.Exists("rolepacks", "DATA") then
-                ErrorNoHalt("Item named 'rolepacks' already exists in garrysmod/data but it is not a directory\n")
-                return
-            end
-
-            file.CreateDir("rolepacks")
-        end
-        file.CreateDir("rolepacks/draft")
-        file.Write("rolepacks/draft/roles.json", rolePackJson)
-        file.CreateDir("rolepacks/draft/weapons")
-        file.Write("rolepacks/draft/convars.json", convarsJson)
-
-        GetConVar("ttt_role_pack"):SetString("draft")
+        file.Write("rolepackdraft/picked.json", util.TableToJSON(picked))
     end
 end
 
+local currentDate = os.date("%Y-%m-%d")
+
 function BeginRolePackDraft()
+    -- Stats tracking for auto-draft, we want stats to be accurate even if a draft is manually triggered
+    SetAutoRoleDraftStat("lastDraftDate", currentDate)
+    SetAutoRoleDraftStat("mapLoadsSinceServerStartOrLastDraft", 0)
+
+    draftPhase = -1
+    selected = nil
+    order = {}
+    roles = {}
+    picked = {
+        [ROLE_TEAM_INNOCENT] = {},
+        [ROLE_TEAM_TRAITOR] = {},
+        [ROLE_TEAM_JESTER] = {},
+        [ROLE_TEAM_INDEPENDENT] = {},
+        [ROLE_TEAM_MONSTER] = {},
+        [ROLE_TEAM_DETECTIVE] = {}
+    }
+    banned = {
+        [ROLE_TEAM_INNOCENT] = {},
+        [ROLE_TEAM_TRAITOR] = {},
+        [ROLE_TEAM_JESTER] = {},
+        [ROLE_TEAM_INDEPENDENT] = {},
+        [ROLE_TEAM_MONSTER] = {},
+        [ROLE_TEAM_DETECTIVE] = {}
+    }
+
+    RunConsoleCommand("ttt_roundrestart")
+
     order = RandomisePickBanOrder()
     roles = ReadAvailableRoles()
 
@@ -574,8 +672,10 @@ function BeginRolePackDraft()
         net.Broadcast()
     end
 
-    local time = draft_prep_time:GetInt() + (draft_turn_time:GetInt() * #order) + draft_end_time:GetInt() + 1
-    RunConsoleCommand("ttt_roundrestart")
+    draftPhase = 0
+    local isRandomTurn = order[draftPhase] and order[draftPhase].player == nil
+    local turnTime = isRandomTurn and draft_random_time:GetInt() or draft_turn_time:GetInt()
+    local time = draft_prep_time:GetInt() + (turnTime * #order) + draft_end_time:GetInt() + 1
     timer.Simple(0, function()
         SetRoundEnd(CurTime() + time)
         timer.Remove("prep2begin")
@@ -584,7 +684,6 @@ function BeginRolePackDraft()
         timer.Create("selectmute", time - 1, 1, function() MuteForRestart(true) end)
     end)
 
-    draftPhase = 0
     timer.Create("TTT_Draft_NextTurn", draft_prep_time:GetInt(), 0, NextRolePackDraft)
 end
 concommand.Add("ttt_draft_begin", BeginRolePackDraft, nil, "Starts a role pack draft", FCVAR_SERVER_CAN_EXECUTE)
@@ -602,4 +701,46 @@ net.Receive("TTT_SelectRolePackDraft", function(_, ply)
     net.Start("TTT_UpdateRolePackDraft")
     net.WriteInt(role, util.RoleBits())
     net.Broadcast()
+
+    if draft_pick_ends_turn:GetBool() then
+        NextRolePackDraft()
+    end
+end)
+
+local addedRolePackCallback = false
+
+hook.Add("TTTPrepareRound", "TTTDraft_TTTPrepareRound", function()
+    timer.Simple(1, function()
+        local rolePackCvar = GetConVar("ttt_role_pack")
+
+        -- Restore the draft pack after a map change if:
+        -- we're still within the number of map switches allowed,
+        -- it's the same day,
+        -- the draft role pack was active,
+        -- and it isn't already set
+        local lastDraftDate = GetAutoRoleDraftStat("lastDraftDate")
+        local mapLoads = GetAutoRoleDraftStat("mapLoadsSinceServerStartOrLastDraft")
+        local draftPackActive = GetAutoRoleDraftStat("isDraftRolePackActive")
+
+        if mapLoads <= draft_persist_maps:GetInt() and lastDraftDate and lastDraftDate == currentDate and draftPackActive and rolePackCvar:GetString() ~= "draft" then
+            rolePackCvar:SetString("draft")
+        end
+
+        -- If the active role pack is manually switched away from the draft role pack by an admin or otherwise, don't restore it
+        if not addedRolePackCallback then
+            addedRolePackCallback = true
+            cvars.AddChangeCallback("ttt_role_pack", function(_, _, newValue)
+                SetAutoRoleDraftStat("isDraftRolePackActive", newValue == "draft")
+            end, "TTTDraft_RolePackChanged")
+        end
+
+        local isDraft = rolePackCvar:GetString() == "draft"
+        SetAutoRoleDraftStat("isDraftRolePackActive", isDraft)
+
+        -- Otherwise, update and set the draft role pack for a potentially new player count this round
+        -- Yes, this doesn't work with players joining/leaving during round prep, but TTTSelectRoles was too late, so we use TTTPrepareRound instead
+        if isDraft then
+            UpdateAndSetDraftRolePack()
+        end
+    end)
 end)
